@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore generated and dependency directories"
+paths = [
+  '''(^|/)\.papucs-smoke/''',
+  '''(^|/)coverage/''',
+  '''(^|/)dist/''',
+  '''(^|/)node_modules/''',
+]
+

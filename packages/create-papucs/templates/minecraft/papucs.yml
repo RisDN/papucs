@@ -1,0 +1,30 @@
+version: 1
+project: __PROJECT_NAME__
+
+runtime:
+  dir: .runtime
+
+sources:
+  layers: layers
+  servers: servers
+
+compose:
+  file: docker-compose.yml
+  shared_server_template: servers/_template/minecraft-server-base.yml
+
+build:
+  dockerfile_template: Dockerfile.template
+  image: "papucs-example/%server_type%"
+  tags:
+    - "%ref%"
+    - "%sha%"
+
+preserve_paths:
+  - libraries
+  - libs
+
+replaceable_text_extensions:
+  - .yml
+  - .yaml
+  - .json
+  - .properties

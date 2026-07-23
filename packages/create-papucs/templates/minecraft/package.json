@@ -1,0 +1,13 @@
+{
+  "name": "__PROJECT_NAME__",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "doctor": "papucs doctor",
+    "dev": "papucs dev spawn",
+    "build:images": "papucs build --actions"
+  },
+  "devDependencies": {
+    "papucs": "^__PAPUCS_VERSION__"
+  }
+}

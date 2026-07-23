@@ -1,0 +1,51 @@
+{
+  "name": "papucs",
+  "version": "0.1.0",
+  "description": "Local-first Minecraft server development and OCI image build CLI",
+  "type": "module",
+  "bin": {
+    "papucs": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "minecraft",
+    "docker",
+    "cli",
+    "development",
+    "compose"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RisDN/papucs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/RisDN/papucs/issues"
+  },
+  "homepage": "https://github.com/RisDN/papucs#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "commander": "^14.0.0",
+    "yaml": "^2.8.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2"
+  }
+}
