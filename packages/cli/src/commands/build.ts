@@ -37,6 +37,15 @@ function validateDockerReference(value: string, label: string): string {
   return value;
 }
 
+export function sanitizeDockerTagValue(value: string): string {
+  const sanitized = value
+    .trim()
+    .replaceAll(/[^A-Za-z0-9_.-]+/g, "-")
+    .replace(/^[.-]+/, "")
+    .slice(0, 128);
+  return sanitized || "unknown";
+}
+
 export async function commandBuildServer(
   context: ProjectContext,
   serverTypeValue: string,
@@ -75,7 +84,7 @@ export async function commandBuildServer(
   };
   const values = buildTemplateValues(context, manifest.config, serverType, {
     build_from: manifest.config.image,
-    ref: git.ref,
+    ref: sanitizeDockerTagValue(git.ref),
     sha: git.sha,
     github_owner: git.githubOwner,
   });

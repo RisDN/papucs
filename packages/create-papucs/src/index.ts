@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -239,7 +239,7 @@ async function main(): Promise<void> {
 
 if (
   process.argv[1] &&
-  pathToFileURL(process.argv[1]).href === import.meta.url
+  pathToFileURL(realpathSync(process.argv[1])).href === import.meta.url
 ) {
   await main();
 }

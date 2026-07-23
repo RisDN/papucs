@@ -64,6 +64,10 @@ Build image and tag templates also receive:
 - `%ref%`
 - `%sha%`
 - `%github_owner%`
+
+`%ref%` is normalized to a Docker-tag-safe value when used by the image build
+pipeline. For example, `feature/network` becomes `feature-network`.
+
 - `%build_from%`
 
 `%github_owner%` reads `GITHUB_REPOSITORY_OWNER` or `GHCR_OWNER`.
