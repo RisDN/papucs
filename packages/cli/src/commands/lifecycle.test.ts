@@ -13,6 +13,7 @@ describe("instance runtime materialization", () => {
     const runtimeDirectory = path.join(root, "runtime");
     await mkdir(sourceDirectory, { recursive: true });
     await mkdir(path.join(runtimeDirectory, "libraries"), { recursive: true });
+    await mkdir(path.join(runtimeDirectory, ".cache"), { recursive: true });
     await writeFile(path.join(sourceDirectory, "server.yml"), "name=${NAME}\n");
     await writeFile(path.join(runtimeDirectory, "server.yml"), "modified\n");
     await writeFile(path.join(runtimeDirectory, "generated.tmp"), "remove\n");
@@ -20,10 +21,14 @@ describe("instance runtime materialization", () => {
       path.join(runtimeDirectory, "libraries", "keep.jar"),
       "keep\n",
     );
+    await writeFile(
+      path.join(runtimeDirectory, ".cache", "runtime-cache"),
+      "keep\n",
+    );
 
     const context = {
       config: {
-        preserve_paths: ["libraries"],
+        preserve_paths: ["libraries", ".cache"],
         replaceable_text_extensions: [".yml"],
       },
     } as ProjectContext;
@@ -60,6 +65,12 @@ describe("instance runtime materialization", () => {
     expect(
       await readFile(
         path.join(runtimeDirectory, "libraries", "keep.jar"),
+        "utf8",
+      ),
+    ).toBe("keep\n");
+    expect(
+      await readFile(
+        path.join(runtimeDirectory, ".cache", "runtime-cache"),
         "utf8",
       ),
     ).toBe("keep\n");

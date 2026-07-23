@@ -22,6 +22,7 @@ build:
 preserve_paths:
   - libraries
   - libs
+  - .cache
 
 replaceable_text_extensions:
   - .yml

@@ -21,9 +21,12 @@ describe("create-papucs", () => {
     expect(await readFile(path.join(target, ".env"), "utf8")).toContain(
       "EULA=TRUE",
     );
-    expect(await readFile(path.join(target, "papucs.yml"), "utf8")).toContain(
-      "project: example-network",
+    const projectConfig = await readFile(
+      path.join(target, "papucs.yml"),
+      "utf8",
     );
+    expect(projectConfig).toContain("project: example-network");
+    expect(projectConfig).toContain("  - .cache");
     expect(
       await readFile(path.join(target, "package.json"), "utf8"),
     ).not.toContain("__PAPUCS_VERSION__");
