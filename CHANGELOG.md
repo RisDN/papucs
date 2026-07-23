@@ -2,6 +2,11 @@
 
 All notable changes follow semantic versioning.
 
+## 0.1.1
+
+- Restore clean runtime replacement for `up`, `rebuild`, and `restart`.
+- Preserve configured runtime-owned paths during clean replacement.
+
 ## 0.1.0
 
 - Node.js 22+ local-development CLI.

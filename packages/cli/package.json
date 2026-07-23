@@ -1,6 +1,6 @@
 {
   "name": "papucs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first Minecraft server development and OCI image build CLI",
   "type": "module",
   "bin": {
