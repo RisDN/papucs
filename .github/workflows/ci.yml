@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - run: npm run audit:content
+      - run: npm run audit:licenses
+      - run: npm run pack:check
+
+  package-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack and install local tarballs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli_tarball="$(npm pack --workspace papucs --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)[0].filename))")"
+          create_tarball="$(npm pack --workspace create-papucs --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)[0].filename))")"
+          mkdir smoke
+          cd smoke
+          npm init -y
+          npm install "../${create_tarball}"
+          npx create-papucs project --no-install --yes --accept-eula
+          cd project
+          npm install "../../${cli_tarball}"
+          npx papucs config validate --json
+          npx papucs build --actions --dry-run --json
+
+  docker-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Create project with local CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cli_tarball="$(npm pack --workspace papucs --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s)[0].filename))")"
+          node packages/create-papucs/dist/index.js integration-project --no-install --yes --accept-eula
+          cd integration-project
+          npm install "../${cli_tarball}"
+          sed -i 's#papucs-example/%server_type%#localhost:5000/papucs/%server_type%#' papucs.yml
+      - name: Lifecycle and registry smoke
+        shell: bash
+        working-directory: integration-project
+        run: |
+          set -euo pipefail
+          docker run -d --name papucs-test-registry -p 5000:5000 registry:2
+          npx papucs doctor
+          npx papucs dev spawn --no-logs
+          npx papucs status --json
+          npx papucs sync spawn --dry-run --json
+          npx papucs restart spawn-1
+          npx papucs build --actions --push --json
+          npx papucs down spawn-1
+          npx papucs stopall
+          docker rm -f papucs-test-registry
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

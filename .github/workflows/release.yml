@@ -1,0 +1,35 @@
+name: Release npm packages
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@latest
+      - run: npm ci
+      - run: npm run release:check -- "${{ github.event.release.tag_name }}"
+      - run: npm run verify
+      - run: npm run audit:content
+      - run: npm run audit:licenses
+      - run: npm audit --audit-level=high
+      # Bootstrap authentication is removed after trusted publishing is configured.
+      - run: npm publish --workspace papucs --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish --workspace create-papucs --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

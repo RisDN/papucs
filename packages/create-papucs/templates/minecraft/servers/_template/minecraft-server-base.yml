@@ -1,0 +1,19 @@
+services:
+  minecraft:
+    x-papucs:
+      inject_environment: true
+    environment:
+      TYPE: PAPER
+      VERSION: "1.21.11"
+      EULA: "${EULA}"
+      MEMORY: "${MEMORY}"
+      SERVER_NAME: "${PAPUCS_INSTANCE_NAME}"
+      MOTD: "${PAPUCS_INSTANCE_NAME}"
+      SERVER_PORT: "${PAPUCS_PORT}"
+    ports:
+      - "${PAPUCS_PORT}:${PAPUCS_PORT}"
+    volumes:
+      - "${PAPUCS_DATA_PATH}:/data"
+    tty: true
+    stdin_open: true
+    stop_grace_period: 2m

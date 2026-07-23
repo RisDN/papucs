@@ -1,0 +1,15 @@
+FROM %build_from%
+
+ENV REF_TAG=%ref%
+ENV SHA_TAG=%sha%
+
+COPY data/ /data/
+COPY papucs-runtime-replace.sh /usr/local/bin/papucs-runtime-replace.sh
+COPY papucs-interpolate.env /etc/papucs/interpolate_variables.env
+COPY replaceable_extensions.txt /etc/papucs/replaceable_extensions.txt
+
+RUN chmod +x /usr/local/bin/papucs-runtime-replace.sh
+
+ENTRYPOINT ["/usr/local/bin/papucs-runtime-replace.sh"]
+CMD ["/start"]
+

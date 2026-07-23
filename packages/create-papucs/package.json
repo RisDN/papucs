@@ -1,0 +1,50 @@
+{
+  "name": "create-papucs",
+  "version": "0.1.0",
+  "description": "Create a ready-to-use Papucs Minecraft development project",
+  "type": "module",
+  "bin": {
+    "create-papucs": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "create",
+    "minecraft",
+    "papucs",
+    "docker"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RisDN/papucs.git",
+    "directory": "packages/create-papucs"
+  },
+  "bugs": {
+    "url": "https://github.com/RisDN/papucs/issues"
+  },
+  "homepage": "https://github.com/RisDN/papucs#readme",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "commander": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2"
+  }
+}
