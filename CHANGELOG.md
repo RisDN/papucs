@@ -7,6 +7,7 @@ All notable changes follow semantic versioning.
 - Restore clean runtime replacement for `up`, `rebuild`, and `restart`.
 - Preserve configured runtime-owned paths during clean replacement.
 - Preserve the Minecraft container cache in newly initialized projects.
+- Map Minecraft container writes to the host user on Linux.
 
 ## 0.1.0
 

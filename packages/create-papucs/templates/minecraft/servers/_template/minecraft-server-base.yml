@@ -7,6 +7,8 @@ services:
       VERSION: "1.21.11"
       EULA: "${EULA}"
       MEMORY: "${MEMORY}"
+      UID: "${PAPUCS_HOST_UID}"
+      GID: "${PAPUCS_HOST_GID}"
       SERVER_NAME: "${PAPUCS_INSTANCE_NAME}"
       MOTD: "${PAPUCS_INSTANCE_NAME}"
       SERVER_PORT: "${PAPUCS_PORT}"

@@ -27,6 +27,12 @@ describe("create-papucs", () => {
     );
     expect(projectConfig).toContain("project: example-network");
     expect(projectConfig).toContain("  - .cache");
+    const composeTemplate = await readFile(
+      path.join(target, "servers", "_template", "minecraft-server-base.yml"),
+      "utf8",
+    );
+    expect(composeTemplate).toContain('UID: "${PAPUCS_HOST_UID}"');
+    expect(composeTemplate).toContain('GID: "${PAPUCS_HOST_GID}"');
     expect(
       await readFile(path.join(target, "package.json"), "utf8"),
     ).not.toContain("__PAPUCS_VERSION__");

@@ -80,9 +80,15 @@ Compose templates receive reserved `${PAPUCS_*}` values:
 - `PAPUCS_SERVER_TYPE`
 - `PAPUCS_DATA_PATH`
 - `PAPUCS_PORT`, when a port mapping can be resolved
+- `PAPUCS_HOST_UID`
+- `PAPUCS_HOST_GID`
 
 Add `x-papucs: { inject_environment: true }` to the primary service to inject
 the merged environment. Explicit Compose environment values win.
+
+On Linux, `PAPUCS_HOST_UID` and `PAPUCS_HOST_GID` default to the current host
+user and group. Other platforms default to `1000`. Set either value in `.env`
+when a rootless or remote Docker daemon requires a different mapping.
 
 ## Environment precedence
 

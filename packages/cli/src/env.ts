@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import process from "node:process";
 import type { ProjectContext, ServerConfig } from "./types";
 
 export function parseEnvContent(content: string): Record<string, string> {
@@ -87,6 +88,14 @@ export function denormalizeEnvironment(
   return Object.entries(environment).map(([key, value]) => `${key}=${value}`);
 }
 
+function detectHostNumericId(getter: (() => number) | undefined): string {
+  if (process.platform !== "linux" || typeof getter !== "function") {
+    return "1000";
+  }
+  const value = getter();
+  return value > 0 ? String(value) : "1000";
+}
+
 export function buildRuntimeTemplateContext(options: {
   serverType: string;
   instanceId: string;
@@ -118,6 +127,10 @@ export function buildRuntimeTemplateContext(options: {
     PAPUCS_INSTANCE_INDEX: String(options.index),
     PAPUCS_SERVER_TYPE: options.serverType,
     PAPUCS_DATA_PATH: `./instances/${options.instanceId}/data`,
+    PAPUCS_HOST_UID:
+      options.mergedEnv.PAPUCS_HOST_UID ?? detectHostNumericId(process.getuid),
+    PAPUCS_HOST_GID:
+      options.mergedEnv.PAPUCS_HOST_GID ?? detectHostNumericId(process.getgid),
     SERVER_NAME: options.mergedEnv.SERVER_NAME ?? options.instanceName,
     MOTD: options.mergedEnv.MOTD ?? options.instanceName,
   };
