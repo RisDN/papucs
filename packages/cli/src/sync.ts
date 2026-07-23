@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   copyFileWithDirs,
@@ -52,42 +52,44 @@ export function isRetainedPath(
   );
 }
 
-async function findRetainedDirectories(
+function isProtectedPath(relativePath: string, configured: string[]): boolean {
+  const normalized = toPosix(relativePath);
+  return (
+    isRetainedPath(normalized, configured) ||
+    configured.some((entry) => entry.startsWith(`${normalized}/`))
+  );
+}
+
+async function removeUnprotectedEntries(
   runtimeDataDir: string,
   configured: string[],
+  relativeRoot = "",
 ): Promise<string[]> {
   if (!existsSync(runtimeDataDir)) {
     return [];
   }
-  const matches: string[] = [];
-  const stack: Array<{ absolute: string; relative: string }> = [
-    { absolute: runtimeDataDir, relative: "" },
-  ];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
+  const removed: string[] = [];
+  for (const entry of await readdir(runtimeDataDir, { withFileTypes: true })) {
+    const relative = relativeRoot
+      ? `${relativeRoot}/${entry.name}`
+      : entry.name;
+    if (isRetainedPath(relative, configured)) {
       continue;
     }
-    for (const entry of await readdir(current.absolute, {
-      withFileTypes: true,
-    })) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-      const relative = current.relative
-        ? `${current.relative}/${entry.name}`
-        : entry.name;
-      if (isRetainedPath(relative, configured)) {
-        matches.push(relative);
-      } else {
-        stack.push({
-          absolute: path.join(current.absolute, entry.name),
-          relative,
-        });
-      }
+    const absolute = path.join(runtimeDataDir, entry.name);
+    if (
+      entry.isDirectory() &&
+      configured.some((preserved) => preserved.startsWith(`${relative}/`))
+    ) {
+      removed.push(
+        ...(await removeUnprotectedEntries(absolute, configured, relative)),
+      );
+      continue;
     }
+    await rm(absolute, { recursive: true, force: true });
+    removed.push(relative);
   }
-  return matches;
+  return removed;
 }
 
 export function manifestCacheEntries(
@@ -111,33 +113,21 @@ export async function replaceRuntimeDataFromManifest(
   } = {},
 ): Promise<Record<string, SyncCacheFileEntry>> {
   const configured = options.preserve === false ? [] : retainedPaths(context);
-  const temporary = `${runtimeDataDir}.__preserved`;
-  await rm(temporary, { recursive: true, force: true });
-  const preserved = await findRetainedDirectories(runtimeDataDir, configured);
-
-  for (const relative of preserved) {
-    const source = path.join(runtimeDataDir, relative);
-    const target = path.join(temporary, relative);
-    await ensureDir(path.dirname(target));
-    await rename(source, target);
+  if (configured.length === 0) {
+    await rm(runtimeDataDir, { recursive: true, force: true });
+  } else {
+    await removeUnprotectedEntries(runtimeDataDir, configured);
   }
-
-  await rm(runtimeDataDir, { recursive: true, force: true });
   await ensureDir(runtimeDataDir);
   for (const source of manifest.files.values()) {
+    if (isProtectedPath(source.relPath, configured)) {
+      continue;
+    }
     await copyFileWithDirs(
       source.absPath,
       path.join(runtimeDataDir, source.relPath),
     );
   }
-  for (const relative of preserved) {
-    const source = path.join(temporary, relative);
-    const target = path.join(runtimeDataDir, relative);
-    await ensureDir(path.dirname(target));
-    await rm(target, { recursive: true, force: true });
-    await rename(source, target);
-  }
-  await rm(temporary, { recursive: true, force: true });
 
   if (options.replacementVariables) {
     await replaceEnvironmentVariables(
@@ -145,6 +135,7 @@ export async function replaceRuntimeDataFromManifest(
       runtimeDataDir,
       manifest,
       options.replacementVariables,
+      configured,
     );
   }
   return manifestCacheEntries(manifest);
@@ -155,6 +146,7 @@ async function replaceEnvironmentVariables(
   runtimeDataDir: string,
   manifest: SourceManifest,
   variables: Record<string, string>,
+  configured: string[],
 ): Promise<void> {
   const extensions = new Set(
     context.config.replaceable_text_extensions.map((value) =>
@@ -162,6 +154,9 @@ async function replaceEnvironmentVariables(
     ),
   );
   for (const relative of manifest.files.keys()) {
+    if (isProtectedPath(relative, configured)) {
+      continue;
+    }
     if (!extensions.has(path.extname(relative).toLowerCase())) {
       continue;
     }
@@ -192,16 +187,17 @@ export async function applySync(
   const deleted: string[] = [];
 
   for (const [relative, source] of manifest.files) {
-    if (isRetainedPath(relative, configured)) {
+    if (isProtectedPath(relative, configured)) {
       continue;
     }
-    if (previousCache.files[relative]?.hash !== source.hash) {
+    const runtimePath = path.join(runtimeDataDir, relative);
+    if (
+      previousCache.files[relative]?.hash !== source.hash ||
+      !existsSync(runtimePath)
+    ) {
       changed.push(relative);
       if (!options.dryRun) {
-        await copyFileWithDirs(
-          source.absPath,
-          path.join(runtimeDataDir, relative),
-        );
+        await copyFileWithDirs(source.absPath, runtimePath);
       }
     }
   }
@@ -225,6 +221,7 @@ export async function applySync(
       runtimeDataDir,
       manifest,
       options.replacementVariables,
+      configured,
     );
   }
   return { changed, deleted };

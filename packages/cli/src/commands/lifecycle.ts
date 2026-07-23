@@ -27,12 +27,7 @@ import {
   validateIdentifier,
 } from "../naming";
 import { cachePath, loadCache, loadState, saveCache } from "../state";
-import {
-  applySync,
-  hasPendingSync,
-  manifestCacheEntries,
-  replaceRuntimeDataFromManifest,
-} from "../sync";
+import { applySync, hasPendingSync, manifestCacheEntries } from "../sync";
 import type {
   ApplySyncResult,
   ProjectContext,
@@ -105,12 +100,16 @@ async function materializeInstance(
     context.runtimeRoot,
     instance.runtimeDataDir,
   );
-  const files = await replaceRuntimeDataFromManifest(
+  const previousCache = await loadCache(
     context,
-    runtimeDataDir,
-    manifest,
-    { replacementVariables: variables },
+    instance.id,
+    instance.serverType,
   );
+  await applySync(context, runtimeDataDir, manifest, previousCache, {
+    dryRun: false,
+    replacementVariables: variables,
+  });
+  const files = manifestCacheEntries(manifest);
   await saveCache(context, {
     instanceId: instance.id,
     serverType: instance.serverType,
