@@ -30,6 +30,23 @@ describe("Compose service materialization", () => {
     expect(service.command).toEqual(["serve"]);
     expect(service["x-papucs"]).toBeUndefined();
     expect(service.environment).toContain("SECRET=compose-wins");
+    expect(variables.PAPUCS_HOST_UID).toMatch(/^\d+$/);
+    expect(variables.PAPUCS_HOST_GID).toMatch(/^\d+$/);
+  });
+
+  test("allows explicit host identity overrides", () => {
+    const variables = buildRuntimeTemplateContext({
+      serverType: "spawn",
+      instanceId: "spawn-1",
+      index: 1,
+      instanceName: "example-spawn-1",
+      mergedEnv: {
+        PAPUCS_HOST_UID: "2001",
+        PAPUCS_HOST_GID: "2002",
+      },
+    });
+    expect(variables.PAPUCS_HOST_UID).toBe("2001");
+    expect(variables.PAPUCS_HOST_GID).toBe("2002");
   });
 
   test("rejects unresolved reserved variables", () => {

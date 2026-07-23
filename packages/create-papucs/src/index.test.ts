@@ -21,9 +21,18 @@ describe("create-papucs", () => {
     expect(await readFile(path.join(target, ".env"), "utf8")).toContain(
       "EULA=TRUE",
     );
-    expect(await readFile(path.join(target, "papucs.yml"), "utf8")).toContain(
-      "project: example-network",
+    const projectConfig = await readFile(
+      path.join(target, "papucs.yml"),
+      "utf8",
     );
+    expect(projectConfig).toContain("project: example-network");
+    expect(projectConfig).toContain("  - .cache");
+    const composeTemplate = await readFile(
+      path.join(target, "servers", "_template", "minecraft-server-base.yml"),
+      "utf8",
+    );
+    expect(composeTemplate).toContain('UID: "${PAPUCS_HOST_UID}"');
+    expect(composeTemplate).toContain('GID: "${PAPUCS_HOST_GID}"');
     expect(
       await readFile(path.join(target, "package.json"), "utf8"),
     ).not.toContain("__PAPUCS_VERSION__");

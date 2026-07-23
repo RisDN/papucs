@@ -27,13 +27,20 @@ import {
   validateIdentifier,
 } from "../naming";
 import { cachePath, loadCache, loadState, saveCache } from "../state";
-import { applySync, hasPendingSync, manifestCacheEntries } from "../sync";
+import {
+  applySync,
+  hasPendingSync,
+  manifestCacheEntries,
+  replaceRuntimeDataFromManifest,
+} from "../sync";
 import type {
   ApplySyncResult,
   ProjectContext,
   Reporter,
   RuntimeInstance,
   RuntimeState,
+  SourceManifest,
+  SyncCacheFileEntry,
 } from "../types";
 
 async function nextServerIndex(
@@ -55,6 +62,22 @@ async function nextServerIndex(
     }
   }
   return highest + 1;
+}
+
+export async function replaceInstanceRuntimeData(options: {
+  context: ProjectContext;
+  runtimeDataDir: string;
+  manifest: SourceManifest;
+  replacementVariables: Record<string, string>;
+}): Promise<Record<string, SyncCacheFileEntry>> {
+  return await replaceRuntimeDataFromManifest(
+    options.context,
+    options.runtimeDataDir,
+    options.manifest,
+    {
+      replacementVariables: options.replacementVariables,
+    },
+  );
 }
 
 async function materializeInstance(
@@ -100,16 +123,12 @@ async function materializeInstance(
     context.runtimeRoot,
     instance.runtimeDataDir,
   );
-  const previousCache = await loadCache(
+  const files = await replaceInstanceRuntimeData({
     context,
-    instance.id,
-    instance.serverType,
-  );
-  await applySync(context, runtimeDataDir, manifest, previousCache, {
-    dryRun: false,
+    runtimeDataDir,
+    manifest,
     replacementVariables: variables,
   });
-  const files = manifestCacheEntries(manifest);
   await saveCache(context, {
     instanceId: instance.id,
     serverType: instance.serverType,
