@@ -80,6 +80,7 @@ papucs doctor
 papucs config validate
 papucs dev <server_type>
 papucs up <server_type...>
+papucs attach <instance_id>
 papucs down <instance_id>
 papucs down <server_type> --all
 papucs restart <instance_id...>

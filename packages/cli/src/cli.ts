@@ -1,4 +1,5 @@
 import { Command, CommanderError } from "commander";
+import { commandAttach } from "./commands/attach";
 import { commandBuildServer, resolveBuildServerTypes } from "./commands/build";
 import {
   commandConfigValidate,
@@ -143,6 +144,13 @@ function buildProgram(): Command {
           await commandUp(project, serverType, reporter());
         }
       });
+    });
+
+  program
+    .command("attach <instance>")
+    .description("attach to a managed instance container")
+    .action(async (instance: string) => {
+      await commandAttach(await context(), instance);
     });
 
   program

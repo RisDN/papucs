@@ -24,6 +24,8 @@ Resolution order is explicit `--config`, explicit `--project`, then upward
 - `papucs dev <type> [--no-logs]`: reuses the lowest running development
   instance; otherwise restarts a stopped managed instance or creates one.
 - `papucs up <type...>`: creates ad-hoc numbered instances.
+- `papucs attach <id>`: attaches the terminal to the instance's Docker container
+  without requiring its generated container name.
 - `papucs down <id>`: removes one managed container while keeping runtime data.
 - `papucs down <type> --all`: removes all instances of one type.
 - `papucs restart <id...>`: rematerializes and restarts instances.

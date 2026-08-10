@@ -2,6 +2,12 @@
 
 All notable changes follow semantic versioning.
 
+## 0.1.2
+
+- Add `papucs attach <instance>` for attaching to managed Docker containers by
+  instance name.
+- Refresh development dependencies to patched versions.
+
 ## 0.1.1
 
 - Restore clean runtime replacement for `up`, `rebuild`, and `restart`.
