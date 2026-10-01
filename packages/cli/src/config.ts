@@ -44,6 +44,35 @@ const projectConfigSchema = z
   })
   .strict();
 
+const dependencyConditionSchema = z
+  .enum([
+    "service_started",
+    "service_healthy",
+    "service_completed_successfully",
+  ])
+  .default("service_started");
+const dependencyTargetSchema = z.string().trim().min(1);
+const serverDependencySchema = z.union([
+  z
+    .object({
+      service: dependencyTargetSchema,
+      condition: dependencyConditionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      server: dependencyTargetSchema,
+      condition: dependencyConditionSchema,
+    })
+    .strict(),
+  z
+    .object({
+      instance: dependencyTargetSchema,
+      condition: dependencyConditionSchema,
+    })
+    .strict(),
+]);
+
 const serverConfigSchema = z
   .object({
     name: z.string().trim().min(1),
@@ -61,6 +90,7 @@ const serverConfigSchema = z
       .record(z.union([z.string(), z.number(), z.boolean()]))
       .optional(),
     layers: z.array(z.string().trim().min(1)).optional(),
+    depends_on: z.array(serverDependencySchema).optional(),
   })
   .passthrough();
 

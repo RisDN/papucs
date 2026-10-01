@@ -11,12 +11,12 @@ import {
   commandDown,
   commandPull,
   commandRebuild,
-  commandRestart,
+  commandRestartBatch,
   commandRestartAll,
   commandStatus,
   commandStopAll,
   commandSync,
-  commandUp,
+  commandUpBatch,
 } from "./commands/lifecycle";
 import { commandWorkflowAdd } from "./commands/workflow";
 import { resolveProjectContext } from "./context";
@@ -140,9 +140,7 @@ function buildProgram(): Command {
     .description("start one ad-hoc instance for each server type")
     .action(async (serverTypes: string[]) => {
       await mutate("up", async (project) => {
-        for (const serverType of serverTypes) {
-          await commandUp(project, serverType, reporter());
-        }
+        await commandUpBatch(project, serverTypes, reporter());
       });
     });
 
@@ -168,9 +166,7 @@ function buildProgram(): Command {
     .description("rebuild and restart managed instances")
     .action(async (targets: string[]) => {
       await mutate("restart", async (project) => {
-        for (const target of targets) {
-          await commandRestart(project, target, reporter());
-        }
+        await commandRestartBatch(project, targets, reporter());
       });
     });
 

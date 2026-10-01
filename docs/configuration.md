@@ -54,6 +54,42 @@ Required fields:
 `--skip-build` keeps a layer in local runtimes but removes it from image build
 contexts.
 
+### Runtime dependencies
+
+An optional `depends_on` list declares providers needed by a managed workload:
+
+```yaml
+depends_on:
+  - service: database
+    condition: service_healthy
+  - server: gateway
+    condition: service_healthy
+```
+
+Each entry has exactly one target:
+
+- `service`: an exact service key from the root or server Compose templates.
+- `server`: a server type with exactly one existing or planned managed instance.
+- `instance`: an exact managed instance ID, such as `gateway-2`.
+
+`condition` defaults to `service_started`. `service_healthy` and
+`service_completed_successfully` have the standard Compose meanings. A healthy
+provider must define a healthcheck. Papucs merges declarations with the
+service's existing Compose `depends_on`; incompatible duplicate definitions are
+rejected.
+
+Dependencies resolve to generated Compose service keys, not container names.
+Missing providers, ambiguous server selections, self-dependencies, and cycles
+fail before workloads are stopped or started. Provider instances are not created
+implicitly: include their server types in the same `up` command, or create them
+first. The full `up` batch is planned before startup, so argument order does not
+determine dependency order.
+
+The resulting graph controls startup and shutdown. Providers start first and
+consumers stop first. Independent services within a graph layer may run
+together. Papucs does not infer dependencies from server names, plugins, or game
+modes.
+
 ## Placeholders
 
 Instance names can use `%project%`, `%server_type%`, `%index%`, and scalar

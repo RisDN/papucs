@@ -23,16 +23,33 @@ Resolution order is explicit `--config`, explicit `--project`, then upward
 
 - `papucs dev <type> [--no-logs]`: reuses the lowest running development
   instance; otherwise restarts a stopped managed instance or creates one.
-- `papucs up <type...>`: creates ad-hoc numbered instances.
+- `papucs up <type...>`: plans all ad-hoc numbered instances, resolves
+  dependencies, then starts providers before consumers and waits for configured
+  readiness.
 - `papucs attach <id>`: attaches the terminal to the instance's Docker container
   without requiring its generated container name.
 - `papucs down <id>`: removes one managed container while keeping runtime data.
 - `papucs down <type> --all`: removes all instances of one type.
 - `papucs restart <id...>`: rematerializes and restarts instances.
-- `papucs restartall`: restarts running project infrastructure and
-  rematerializes running instances without service-name hardcoding.
+- `papucs restartall`: snapshots running project services, stops consumers
+  before providers, rematerializes running instances, then starts providers
+  before consumers. Previously stopped workloads remain stopped.
 - `papucs rebuild <id>`: rebuilds and starts one instance.
-- `papucs stopall`: stops only the current Papucs Compose project.
+- `papucs stopall`: stops consumers before providers in the current project,
+  then removes project containers. Named volumes and instance data remain.
+
+Targeted `down`, `restart`, and `rebuild` refuse to stop a provider while its
+dependents are running. Stop the dependents first or use `restartall` for a full
+restart. Listing a consumer and its provider in one targeted `restart` does not
+implicitly turn that operation into a whole-network restart.
+
+Shutdown waits for each dependency layer to exit before stopping its providers.
+A failed, OOM-killed, or unexpected container exit stops the operation and
+retains runtime state and providers for diagnosis. Exit codes `0` and `143`
+(SIGTERM) are accepted; exit `137` is rejected. Compose failures are reported,
+not converted into successful cleanup. A clean container exit is a process-level
+check; applications remain responsible for completing their own save/drain
+before exiting successfully.
 
 ## Source synchronization
 

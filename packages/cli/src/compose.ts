@@ -6,6 +6,10 @@ import { deepClone, toPosix, atomicWriteFile } from "./fs";
 import { denormalizeEnvironment, normalizeEnvironment } from "./env";
 import { loadServerConfig } from "./manifest";
 import { saveState } from "./state";
+import {
+  buildDependencyGraph,
+  mergeDeclaredDependencies,
+} from "./dependencies";
 import type {
   ComposeDocument,
   ComposeTemplate,
@@ -259,11 +263,11 @@ export async function buildRuntimeCompose(
   const networks = deepClone(rootDocument.networks ?? {});
   const volumes = deepClone(rootDocument.volumes ?? {});
 
-  const seenServerTypes = new Set<string>();
+  const serverConfigs = new Map<string, ServerConfig>();
   for (const instance of state.instances) {
-    if (!seenServerTypes.has(instance.serverType)) {
-      seenServerTypes.add(instance.serverType);
+    if (!serverConfigs.has(instance.serverType)) {
       const serverConfig = await loadServerConfig(context, instance.serverType);
+      serverConfigs.set(instance.serverType, serverConfig);
       const template = await loadServerComposeTemplate(
         context,
         instance.serverType,
@@ -273,8 +277,26 @@ export async function buildRuntimeCompose(
       mergeSection(networks, template.topLevelNetworks, "network");
       mergeSection(volumes, template.topLevelVolumes, "volume");
     }
+  }
+  const infrastructureServices = new Set(Object.keys(services));
+  for (const instance of state.instances) {
+    if (Object.hasOwn(services, instance.serviceName)) {
+      throw new PapucsError(
+        `Conflicting Compose service definition: '${instance.serviceName}'.`,
+      );
+    }
     services[instance.serviceName] = deepClone(instance.composeService);
   }
+  for (const instance of state.instances) {
+    mergeDeclaredDependencies({
+      serviceName: instance.serviceName,
+      service: services[instance.serviceName]!,
+      declarations: serverConfigs.get(instance.serverType)!.depends_on ?? [],
+      instances: state.instances,
+      infrastructureServices,
+    });
+  }
+  buildDependencyGraph(services);
 
   const document: ComposeDocument = { services };
   if (Object.keys(networks).length > 0) {

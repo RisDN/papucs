@@ -15,7 +15,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import { Command, CommanderError } from "commander";
 
-const VERSION = "0.1.2";
+const VERSION = "0.2.0";
 const supportedPackageManagers = ["npm", "pnpm", "bun"] as const;
 type PackageManager = (typeof supportedPackageManagers)[number];
 

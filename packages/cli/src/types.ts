@@ -52,6 +52,15 @@ export interface ServerBuildConfig {
   tags?: string[];
 }
 
+export type DependencyCondition =
+  "service_started" | "service_healthy" | "service_completed_successfully";
+
+export type ServerDependency = (
+  | { service: string; server?: never; instance?: never }
+  | { server: string; service?: never; instance?: never }
+  | { instance: string; service?: never; server?: never }
+) & { condition?: DependencyCondition };
+
 export interface ServerConfig {
   name: string;
   image: string;
@@ -61,6 +70,7 @@ export interface ServerConfig {
   build?: ServerBuildConfig;
   interpolate_variables?: Record<string, string | number | boolean>;
   layers?: string[];
+  depends_on?: ServerDependency[];
   [key: string]: unknown;
 }
 

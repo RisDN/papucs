@@ -98,6 +98,11 @@ papucs workflow add ghcr-build [--dry-run]
 `stopall` is project-scoped. It never enumerates or stops unrelated Docker
 Compose projects.
 
+Server definitions can declare configurable runtime dependencies on Compose
+services, server types, or managed instances. Papucs resolves the graph before
+startup and stops consumers before their providers during full shutdown/restart.
+See [runtime dependencies](docs/configuration.md#runtime-dependencies).
+
 ## Automation contract
 
 Commands supporting `--json` write only a versioned JSON envelope to stdout:
