@@ -1,12 +1,11 @@
 import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { readServerConfig, readYamlObject } from "./config";
+import { readLayerMeta, readServerConfig } from "./config";
 import { PapucsError } from "./errors";
 import { listFilesRecursive, sha256File, toPosix } from "./fs";
 import { validateIdentifier } from "./naming";
 import type {
-  LayerMeta,
   ProjectContext,
   Reporter,
   ServerConfig,
@@ -88,6 +87,7 @@ export async function collectSourceManifest(
   const config = await loadServerConfig(context, serverType);
   const files = new Map<string, SourceFile>();
   const overrides: SourceManifest["overrides"] = [];
+  const activeLayers: string[] = [];
 
   const addDirectory = async (
     directory: string,
@@ -112,10 +112,15 @@ export async function collectSourceManifest(
     }
   };
 
-  for (const rawLayer of config.layers ?? []) {
+  const addLayer = async (rawLayer: string): Promise<void> => {
     const layer = parseLayerConfigEntry(rawLayer);
     if (options.skipBuildLayers && layer.skipBuild) {
-      continue;
+      return;
+    }
+    if (activeLayers.includes(layer.name)) {
+      throw new PapucsError(
+        `Circular layer reference: ${[...activeLayers, layer.name].join(" -> ")}.`,
+      );
     }
     const layerDir = path.join(context.layersDir, layer.name);
     const metadataPath = path.join(layerDir, "_layer.yml");
@@ -124,16 +129,26 @@ export async function collectSourceManifest(
         `Layer '${layer.name}' is missing mandatory metadata: ${metadataPath}`,
       );
     }
-    const metadata = await readYamlObject<LayerMeta>(metadataPath);
-    if (
-      typeof metadata.name !== "string" ||
-      metadata.name.trim() !== layer.name
-    ) {
+    const metadata = await readLayerMeta(metadataPath);
+    if (metadata.name !== layer.name) {
       throw new PapucsError(
         `Layer metadata name must equal folder name '${layer.name}': ${metadataPath}`,
       );
     }
-    await addDirectory(layerDir, `layer:${layer.name}`);
+    // Track only the current branch: shared layers must retain list-order precedence.
+    activeLayers.push(layer.name);
+    try {
+      for (const childLayer of metadata.layers ?? []) {
+        await addLayer(childLayer);
+      }
+      await addDirectory(layerDir, `layer:${layer.name}`);
+    } finally {
+      activeLayers.pop();
+    }
+  };
+
+  for (const rawLayer of config.layers ?? []) {
+    await addLayer(rawLayer);
   }
 
   const dataDir = path.join(context.serversDir, serverType, "data");

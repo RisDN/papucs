@@ -66,12 +66,17 @@ preserve_paths: [libraries, libs]
 replaceable_text_extensions: [.yml, .yaml, .json, .properties]
 ```
 
-- `layers/<name>` contains reusable files and mandatory `_layer.yml`.
+- `layers/<name>` contains reusable files and mandatory `_layer.yml`, which can
+  include other layers through its own `layers` list.
 - `servers/<type>/<type>.yml` selects layers, container image, Compose service,
   naming, and build behavior.
 - `servers/<type>/data` overrides layer files.
 - `.runtime` contains generated local state and must not be edited or committed.
 - The source `docker-compose.yml` remains user-owned.
+
+Nested layers are applied before the containing layer's files; later files win.
+See [layer definitions](docs/configuration.md#layer-definition) for examples and
+build exclusions.
 
 ## Main commands
 

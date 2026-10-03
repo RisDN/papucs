@@ -76,6 +76,7 @@ export interface ServerConfig {
 
 export interface LayerMeta {
   name: string;
+  layers?: string[];
 }
 
 export interface SourceFile {

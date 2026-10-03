@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import YAML from "yaml";
 import { z } from "zod";
 import { PapucsError } from "./errors";
-import type { ProjectConfig, ServerConfig } from "./types";
+import type { LayerMeta, ProjectConfig, ServerConfig } from "./types";
 
 const relativePathSchema = z
   .string()
@@ -73,6 +73,15 @@ const serverDependencySchema = z.union([
     .strict(),
 ]);
 
+const layerListSchema = z.array(z.string().trim().min(1));
+
+const layerMetaSchema = z
+  .object({
+    name: z.string().trim().min(1),
+    layers: layerListSchema.optional(),
+  })
+  .passthrough();
+
 const serverConfigSchema = z
   .object({
     name: z.string().trim().min(1),
@@ -89,7 +98,7 @@ const serverConfigSchema = z
     interpolate_variables: z
       .record(z.union([z.string(), z.number(), z.boolean()]))
       .optional(),
-    layers: z.array(z.string().trim().min(1)).optional(),
+    layers: layerListSchema.optional(),
     depends_on: z.array(serverDependencySchema).optional(),
   })
   .passthrough();
@@ -144,6 +153,14 @@ export async function readServerConfig(path: string): Promise<ServerConfig> {
     );
   }
 
+  return result.data;
+}
+
+export async function readLayerMeta(path: string): Promise<LayerMeta> {
+  const result = layerMetaSchema.safeParse(await readYaml(path));
+  if (!result.success) {
+    throw formatSchemaError(path, result.error);
+  }
   return result.data;
 }
 

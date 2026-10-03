@@ -2,6 +2,11 @@
 
 All notable changes follow semantic versioning.
 
+## Unreleased
+
+- Allow layers to include other layers through `_layer.yml` with recursive,
+  ordered overrides, subtree build exclusions, and cycle validation.
+
 ## 0.2.0
 
 - Add configurable server `depends_on` declarations targeting infrastructure

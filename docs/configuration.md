@@ -51,8 +51,8 @@ Required fields:
 - `compose_service`
 - `instance_name`, containing exactly one `%index%`
 
-`--skip-build` keeps a layer in local runtimes but removes it from image build
-contexts.
+`--skip-build` keeps a layer and its nested layers in local runtimes but removes
+that reference's entire subtree from image build contexts.
 
 ### Runtime dependencies
 
@@ -89,6 +89,47 @@ The resulting graph controls startup and shutdown. Providers start first and
 consumers stop first. Independent services within a graph layer may run
 together. Papucs does not infer dependencies from server names, plugins, or game
 modes.
+
+## Layer definition
+
+Each layer requires `_layer.yml` with a `name` matching its directory name. An
+optional `layers` list includes other reusable layers using the same syntax as a
+server definition. For example, `layers/network/_layer.yml`:
+
+```yaml
+name: network
+layers:
+  - base
+  - shared-plugins
+  - local-tools --skip-build
+```
+
+A server can then select the bundle:
+
+```yaml
+layers:
+  - network
+  - spawn-overrides
+```
+
+Layer names resolve under the configured `sources.layers` directory, including
+references declared inside another layer. In this example, `base` resolves to
+`layers/base`, not `layers/network/base`.
+
+Papucs recursively applies listed layers in order, then the containing layer's
+own files. Here, `base`, `shared-plugins`, and `local-tools` are applied before
+`network`, followed by `spawn-overrides`. Each of those layers may include
+further layers, which are applied before its own files. Later files override
+earlier files, and the server's `data` directory is applied last. `_layer.yml`
+is metadata and is not copied into runtime or build data.
+
+Repeated or shared references are applied at every occurrence; they are not
+deduplicated. `--skip-build` affects only the flagged reference and its subtree
+during image builds. An unflagged reference to the same layer elsewhere still
+includes it. Local runtimes and synchronization include flagged layers.
+
+Validation rejects missing `_layer.yml`, mismatched names, invalid `layers`
+lists, and circular references, reporting the cycle's layer chain.
 
 ## Placeholders
 
