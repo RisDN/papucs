@@ -2,7 +2,7 @@
 
 All notable changes follow semantic versioning.
 
-## Unreleased
+## 0.4.0
 
 - **Breaking:** Require top-level `papucs_port_base` in every server YAML file,
   as an integer from `1` to `65535`. Replace `PAPUCS_PORT_BASE`, `PORT_BASE`,
