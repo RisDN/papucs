@@ -2,7 +2,7 @@
 
 All notable changes follow semantic versioning.
 
-## Unreleased
+## 0.3.0
 
 - Allow layers to include other layers through `_layer.yml` with recursive,
   ordered overrides, subtree build exclusions, and cycle validation.
