@@ -90,6 +90,7 @@ async function fixture(): Promise<{
         image: "example/application",
         compose_service: "application",
         instance_name: `${serverType}-%index%`,
+        papucs_port_base: 25565,
         ...extra,
       }),
     );
@@ -116,7 +117,8 @@ describe("Compose service materialization", () => {
       instanceId: "spawn-1",
       index: 1,
       instanceName: "example-spawn-1",
-      mergedEnv: { PAPUCS_PORT_BASE: "25565", SECRET: "hidden" },
+      portBase: 25565,
+      mergedEnv: { SECRET: "hidden" },
     });
     const service = buildRuntimeServiceDefinition({
       templateService: {
@@ -147,6 +149,7 @@ describe("Compose service materialization", () => {
       instanceId: "spawn-1",
       index: 1,
       instanceName: "example-spawn-1",
+      portBase: 25565,
       mergedEnv: {
         PAPUCS_HOST_UID: "2001",
         PAPUCS_HOST_GID: "2002",

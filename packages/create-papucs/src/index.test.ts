@@ -27,6 +27,12 @@ describe("create-papucs", () => {
     );
     expect(projectConfig).toContain("project: example-network");
     expect(projectConfig).toContain("  - .cache");
+    const serverConfig = await readFile(
+      path.join(target, "servers", "spawn", "spawn.yml"),
+      "utf8",
+    );
+    expect(serverConfig).toMatch(/^papucs_port_base: 25565\r?$/m);
+    expect(serverConfig).not.toContain("PAPUCS_PORT_BASE");
     const composeTemplate = await readFile(
       path.join(target, "servers", "_template", "minecraft-server-base.yml"),
       "utf8",

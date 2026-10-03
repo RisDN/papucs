@@ -88,6 +88,7 @@ const serverConfigSchema = z
     image: z.string().trim().min(1),
     compose_service: z.string().trim().min(1),
     instance_name: z.string().trim().min(1),
+    papucs_port_base: z.number().int().min(1).max(65535),
     actions_build: z.boolean().optional(),
     build: z
       .object({

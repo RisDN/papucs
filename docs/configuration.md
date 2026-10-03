@@ -30,14 +30,12 @@ name: spawn
 image: itzg/minecraft-server:stable-java24-graalvm
 compose_service: minecraft
 instance_name: "%project%-%server_type%-%index%"
+papucs_port_base: 25565
 actions_build: true
 
 build:
   image: "ghcr.io/example/special-%server_type%"
   tags: ["%ref%", "%sha%"]
-
-interpolate_variables:
-  PAPUCS_PORT_BASE: 25565
 
 layers:
   - base
@@ -50,9 +48,40 @@ Required fields:
 - `image`
 - `compose_service`
 - `instance_name`, containing exactly one `%index%`
+- `papucs_port_base`, an integer from `1` to `65535`
 
 `--skip-build` keeps a layer and its nested layers in local runtimes but removes
 that reference's entire subtree from image build contexts.
+
+### Ports
+
+Every server definition must set `papucs_port_base` at the top level:
+
+```yaml
+name: spawn
+image: itzg/minecraft-server:stable-java24-graalvm
+compose_service: minecraft
+instance_name: "%project%-%server_type%-%index%"
+papucs_port_base: 25565
+```
+
+Papucs calculates `PAPUCS_PORT` as `papucs_port_base + instance_index - 1`. For
+this example, instances `1`, `2`, and `3` receive ports `25565`, `25566`, and
+`25567`. Use separate port ranges for different server types; Papucs does not
+search for a free port or skip occupied ports.
+
+An explicit `PAPUCS_PORT_<index>` environment value overrides the calculated
+port for that instance; `PORTS_<index>` is a fallback alias. For example,
+`PAPUCS_PORT_2=26000` in the project or server `.env` assigns port `26000` to
+instance `2`. These overrides can also be set in `interpolate_variables`. The
+top-level `papucs_port_base` remains required even when an explicit
+instance-port override is present.
+
+To migrate existing configurations, move the base port from
+`interpolate_variables.PAPUCS_PORT_BASE` or `.env` into top-level
+`papucs_port_base` in each server YAML file. `PAPUCS_PORT_BASE`, `PORT_BASE`,
+and `<SERVER_TYPE>_PORT_BASE` environment variables no longer configure the base
+port. Configurations missing `papucs_port_base` fail validation.
 
 ### Runtime dependencies
 
@@ -156,7 +185,7 @@ Compose templates receive reserved `${PAPUCS_*}` values:
 - `PAPUCS_INSTANCE_INDEX`
 - `PAPUCS_SERVER_TYPE`
 - `PAPUCS_DATA_PATH`
-- `PAPUCS_PORT`, when a port mapping can be resolved
+- `PAPUCS_PORT`
 - `PAPUCS_HOST_UID`
 - `PAPUCS_HOST_GID`
 

@@ -14,6 +14,7 @@ import {
   commandRebuild,
   commandRestartAll,
   commandRestartBatch,
+  commandSync,
   commandStopAll,
   commandUpBatch,
   replaceInstanceRuntimeData,
@@ -261,6 +262,7 @@ async function lifecycleProject(
         image: `example/${server}`,
         compose_service: "application",
         instance_name: "example-%server_type%-%index%",
+        papucs_port_base: 25565,
         ...(server === "worker" && options.declarations !== false
           ? {
               depends_on: [{ server: "gateway", condition: "service_started" }],
@@ -306,6 +308,78 @@ async function lifecycleProject(
   }
   return context;
 }
+
+describe("runtime port configuration", () => {
+  test("uses the root port base for startup, sync, and rebuilding an existing index", async () => {
+    const context = await lifecycleProject({ existing: false });
+    const configPath = path.join(context.serversDir, "idle", "idle.yml");
+    const config = JSON.parse(await readFile(configPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    config.papucs_port_base = 26000;
+    config.interpolate_variables = { PAPUCS_PORT_BASE: 41000 };
+    await writeFile(configPath, JSON.stringify(config));
+    await writeFile(context.envPath, "IDLE_PORT_BASE=42000\nPORT_BASE=43000\n");
+    await writeFile(
+      context.sharedServerComposeTemplatePath,
+      JSON.stringify({
+        services: {
+          application: { ports: ["${PAPUCS_PORT}:${PAPUCS_PORT}"] },
+        },
+      }),
+    );
+    const sourcePath = path.join(
+      context.serversDir,
+      "idle",
+      "data",
+      "value.yml",
+    );
+    const portTemplate = "port: ${PAPUCS_PORT}\nserver_port: ${SERVER_PORT}\n";
+    await writeFile(sourcePath, portTemplate);
+
+    const instances = await commandUpBatch(context, ["idle", "idle"], reporter);
+    expect(instances.map((instance) => instance.composeService.ports)).toEqual([
+      ["26000:26000"],
+      ["26001:26001"],
+    ]);
+    for (const [index, instance] of instances.entries()) {
+      expect(
+        await readFile(
+          path.join(context.runtimeRoot, instance.runtimeDataDir, "value.yml"),
+          "utf8",
+        ),
+      ).toBe(`port: ${26000 + index}\nserver_port: ${26000 + index}\n`);
+    }
+
+    await writeFile(sourcePath, `${portTemplate}updated: true\n`);
+    const synced = await commandSync(context, "idle", false, reporter);
+    expect(Object.keys(synced)).toEqual(["idle-1", "idle-2"]);
+    for (const [index, instance] of instances.entries()) {
+      expect(synced[instance.id]?.changed).toEqual(["value.yml"]);
+      expect(
+        await readFile(
+          path.join(context.runtimeRoot, instance.runtimeDataDir, "value.yml"),
+          "utf8",
+        ),
+      ).toBe(
+        `port: ${26000 + index}\nserver_port: ${26000 + index}\nupdated: true\n`,
+      );
+    }
+
+    config.papucs_port_base = 27000;
+    await writeFile(configPath, JSON.stringify(config));
+    const rebuilt = await commandRebuild(context, "idle-2", reporter);
+    expect(rebuilt.index).toBe(2);
+    expect(rebuilt.composeService.ports).toEqual(["27001:27001"]);
+    expect(
+      await readFile(
+        path.join(context.runtimeRoot, rebuilt.runtimeDataDir, "value.yml"),
+        "utf8",
+      ),
+    ).toBe("port: 27001\nserver_port: 27001\nupdated: true\n");
+  });
+});
 
 describe("dependency lifecycle", () => {
   test("batch up resolves a later argument and starts the complete planned batch once", async () => {

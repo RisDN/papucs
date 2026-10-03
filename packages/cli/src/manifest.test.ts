@@ -21,6 +21,7 @@ function serverConfig(layers: string[]): string {
     image: "example/server",
     compose_service: "app",
     instance_name: "%project%-%server_type%-%index%",
+    papucs_port_base: 25565,
     layers,
   });
 }

@@ -38,5 +38,11 @@ default tested base image or provide a compatible server-specific
 
 ## Port conflict
 
-Set `PAPUCS_PORT_BASE` or `PAPUCS_PORT_<index>` in `.env` or server
-`interpolate_variables`.
+Set a different top-level `papucs_port_base` in the server YAML file, using
+separate port ranges for different server types. To change only one instance,
+set `PAPUCS_PORT_<index>` in `.env` or server `interpolate_variables`, for
+example `PAPUCS_PORT_2=26000`. The top-level base is still required.
+
+Papucs does not automatically skip occupied ports. Old `PAPUCS_PORT_BASE`,
+`PORT_BASE`, and `<SERVER_TYPE>_PORT_BASE` environment variables no longer
+configure the base port.

@@ -2,10 +2,8 @@ name: spawn
 image: itzg/minecraft-server:stable-java24-graalvm
 compose_service: minecraft
 instance_name: "%project%-%server_type%-%index%"
+papucs_port_base: 25565
 actions_build: true
-
-interpolate_variables:
-  PAPUCS_PORT_BASE: 25565
 
 layers:
   - base

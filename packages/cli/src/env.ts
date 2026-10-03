@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { PapucsError } from "./errors";
 import type { ProjectContext, ServerConfig } from "./types";
 
 export function parseEnvContent(content: string): Record<string, string> {
@@ -101,30 +102,32 @@ export function buildRuntimeTemplateContext(options: {
   instanceId: string;
   index: number;
   instanceName: string;
+  portBase: number;
   mergedEnv: Record<string, string>;
 }): Record<string, string> {
-  const serverPrefix = options.serverType
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "_");
   const exactPort =
     options.mergedEnv[`PAPUCS_PORT_${options.index}`] ??
     options.mergedEnv[`PORTS_${options.index}`];
-  const basePort =
-    options.mergedEnv[`${serverPrefix}_PORT_BASE`] ??
-    options.mergedEnv.PAPUCS_PORT_BASE ??
-    options.mergedEnv.PORT_BASE;
   const port =
     exactPort && /^\d+$/.test(exactPort)
       ? exactPort
-      : basePort && /^\d+$/.test(basePort)
-        ? String(Number(basePort) + options.index - 1)
-        : undefined;
+      : String(options.portBase + options.index - 1);
+  if (
+    !Number.isInteger(Number(port)) ||
+    Number(port) < 1 ||
+    Number(port) > 65535
+  ) {
+    throw new PapucsError(
+      `Invalid port '${port}' for instance '${options.instanceId}': expected an integer between 1 and 65535. Check papucs_port_base and any per-instance port override.`,
+    );
+  }
 
   const context: Record<string, string> = {
     ...options.mergedEnv,
     PAPUCS_INSTANCE_ID: options.instanceId,
     PAPUCS_INSTANCE_NAME: options.instanceName,
     PAPUCS_INSTANCE_INDEX: String(options.index),
+    PAPUCS_PORT: port,
     PAPUCS_SERVER_TYPE: options.serverType,
     PAPUCS_DATA_PATH: `./instances/${options.instanceId}/data`,
     PAPUCS_HOST_UID:
@@ -132,11 +135,8 @@ export function buildRuntimeTemplateContext(options: {
     PAPUCS_HOST_GID:
       options.mergedEnv.PAPUCS_HOST_GID ?? detectHostNumericId(process.getgid),
     SERVER_NAME: options.mergedEnv.SERVER_NAME ?? options.instanceName,
+    SERVER_PORT: options.mergedEnv.SERVER_PORT ?? port,
     MOTD: options.mergedEnv.MOTD ?? options.instanceName,
   };
-  if (port) {
-    context.PAPUCS_PORT = port;
-    context.SERVER_PORT ??= port;
-  }
   return context;
 }

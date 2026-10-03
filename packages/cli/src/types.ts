@@ -66,6 +66,7 @@ export interface ServerConfig {
   image: string;
   compose_service: string;
   instance_name: string;
+  papucs_port_base: number;
   actions_build?: boolean;
   build?: ServerBuildConfig;
   interpolate_variables?: Record<string, string | number | boolean>;

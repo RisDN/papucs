@@ -114,6 +114,7 @@ async function prepareInstance(
     instanceId: instance.id,
     index: instance.index,
     instanceName: instance.serverName,
+    portBase: manifest.config.papucs_port_base,
     mergedEnv: {
       ...mergedEnv,
       REF_TAG: git.ref,
@@ -557,6 +558,7 @@ export async function commandSync(
       instanceId: instance.id,
       index: instance.index,
       instanceName: instance.serverName,
+      portBase: manifest.config.papucs_port_base,
       mergedEnv: {
         ...mergedEnv,
         REF_TAG: git.ref,

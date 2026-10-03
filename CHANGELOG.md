@@ -2,6 +2,14 @@
 
 All notable changes follow semantic versioning.
 
+## Unreleased
+
+- **Breaking:** Require top-level `papucs_port_base` in every server YAML file,
+  as an integer from `1` to `65535`. Replace `PAPUCS_PORT_BASE`, `PORT_BASE`,
+  and `<SERVER_TYPE>_PORT_BASE` environment settings with this field.
+  Per-instance `PAPUCS_PORT_<index>` and `PORTS_<index>` overrides remain
+  supported, but do not replace the required base.
+
 ## 0.3.0
 
 - Allow layers to include other layers through `_layer.yml` with recursive,
