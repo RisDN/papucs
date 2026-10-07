@@ -119,6 +119,52 @@ consumers stop first. Independent services within a graph layer may run
 together. Papucs does not infer dependencies from server names, plugins, or game
 modes.
 
+### Restartall exclusions
+
+To keep local infrastructure running during `papucs restartall`, set the boolean
+`x-papucs.restartall` extension on each Compose service:
+
+```yaml
+services:
+  mongodb:
+    image: mongo:8
+    x-papucs.restartall: false
+  mariadb:
+    image: mariadb:11
+    x-papucs.restartall: false
+  redis:
+    image: redis:7
+    x-papucs.restartall: false
+```
+
+The nested form is equivalent and can be combined with environment injection:
+
+```yaml
+services:
+  minecraft:
+    x-papucs:
+      inject_environment: true
+      restartall: false
+```
+
+Use this on services in the root `docker-compose.yml`, shared server template,
+or a server-specific `docker-compose.yml`. On a primary server-template service,
+the setting applies to every managed instance of that server type. Papucs reads
+the current template on each `restartall`; excluded instances retain their
+runtime files, cache, and saved instance state. This is a Compose extension, not
+a top-level server YAML field.
+
+Omitting the setting or using `true` includes running services. Values must be
+YAML booleans, not strings such as `"false"`. If both forms are specified, their
+values must agree. Excluded running providers remain available to restarted
+consumers; previously stopped services remain stopped. An excluded
+`service_healthy` provider must already be healthy. An excluded running
+`service_completed_successfully` provider is allowed to finish, and its exit is
+verified before any selected service is stopped. If an excluded running consumer
+depends on a selected provider, directly or indirectly, Papucs refuses the
+restart before stopping anything. Exclude the providers too, or stop the
+consumer explicitly first. The setting does not affect other lifecycle commands.
+
 ## Layer definition
 
 Each layer requires `_layer.yml` with a `name` matching its directory name. An

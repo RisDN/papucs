@@ -159,6 +159,44 @@ describe("Compose service materialization", () => {
     expect(variables.PAPUCS_HOST_GID).toBe("2002");
   });
 
+  test.each([false, true])(
+    "preserves nested restartall=%s while consuming environment injection",
+    (restartall) => {
+      const templateService = {
+        "x-papucs": { restartall, inject_environment: true },
+      };
+      const service = buildRuntimeServiceDefinition({
+        templateService,
+        image: "example/server",
+        serverName: "example-spawn-1",
+        variables: { SERVER_MESSAGE: "hello" },
+      });
+
+      expect(service["x-papucs"]).toEqual({ restartall });
+      expect(service.environment).toContain("SERVER_MESSAGE=hello");
+      expect(templateService["x-papucs"]).toEqual({
+        restartall,
+        inject_environment: true,
+      });
+    },
+  );
+
+  test("preserves the literal dotted restartall flag", () => {
+    const service = buildRuntimeServiceDefinition({
+      templateService: {
+        "x-papucs.restartall": false,
+        "x-papucs": { inject_environment: true },
+      },
+      image: "example/server",
+      serverName: "example-spawn-1",
+      variables: { SERVER_MESSAGE: "hello" },
+    });
+
+    expect(service["x-papucs.restartall"]).toBe(false);
+    expect(service["x-papucs"]).toBeUndefined();
+    expect(service.environment).toContain("SERVER_MESSAGE=hello");
+  });
+
   test("rejects unresolved reserved variables", () => {
     expect(() =>
       buildRuntimeServiceDefinition({

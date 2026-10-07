@@ -100,6 +100,7 @@ interface ContainerState {
   Status: string;
   ExitCode: number;
   OOMKilled: boolean;
+  HealthStatus?: string;
 }
 const reporter = { log: vi.fn(), warn: vi.fn(), verbose: vi.fn() };
 let containers: Map<string, ContainerState>;
@@ -116,6 +117,7 @@ function runningState(): ContainerState {
     Status: "running",
     ExitCode: 0,
     OOMKilled: false,
+    HealthStatus: "healthy",
   };
 }
 
@@ -378,6 +380,438 @@ describe("runtime port configuration", () => {
         "utf8",
       ),
     ).toBe("port: 27001\nserver_port: 27001\nupdated: true\n");
+  });
+});
+
+describe("restartall service opt-out", () => {
+  test("skips opted-out infrastructure while restarting its running consumer", async () => {
+    const context = await lifecycleProject({
+      declarations: false,
+      extraServices: {
+        database: {
+          image: "example/db",
+          "x-papucs": { restartall: false },
+        },
+        cache: {
+          image: "example/cache",
+          "x-papucs.restartall": true,
+        },
+      },
+    });
+    for (const service of ["worker-1", "database", "cache"])
+      containers.set(service, runningState());
+
+    const result = await commandRestartAll(context, reporter);
+
+    expect(events).toEqual([
+      "stop worker-1",
+      "stop cache",
+      "rm worker-1",
+      "up cache",
+      "up worker-1",
+    ]);
+    expect(result).toEqual({
+      instances: ["worker-1"],
+      infrastructure: ["cache"],
+    });
+    expect(containers.get("database")?.Running).toBe(true);
+  });
+
+  test("preserves skipped managed provider data, cache, and stored instance", async () => {
+    const context = await lifecycleProject({
+      extraServices: {
+        database: { "x-papucs.restartall": false },
+        cache: { "x-papucs.restartall": false },
+      },
+    });
+    await writeFile(
+      path.join(context.serversDir, "gateway", "docker-compose.yml"),
+      JSON.stringify({
+        services: { application: { "x-papucs": { restartall: false } } },
+      }),
+    );
+    const gatewayData = path.join(
+      context.runtimeInstancesDir,
+      "gateway-1",
+      "data",
+    );
+    await mkdir(gatewayData, { recursive: true });
+    await writeFile(path.join(gatewayData, "value.yml"), "runtime: preserve\n");
+    await writeFile(path.join(gatewayData, "generated.tmp"), "preserve\n");
+    const cachePath = path.join(context.runtimeCacheDir, "gateway-1.json");
+    const cacheBefore = await readFile(cachePath, "utf8");
+    const gatewayBefore = (await loadState(context)).instances.find(
+      (instance) => instance.id === "gateway-1",
+    );
+    for (const service of ["worker-1", "gateway-1", "database", "cache"])
+      containers.set(service, runningState());
+
+    const result = await commandRestartAll(context, reporter);
+
+    expect(events).toEqual(["stop worker-1", "rm worker-1", "up worker-1"]);
+    expect(result).toEqual({ instances: ["worker-1"], infrastructure: [] });
+    expect(containers.get("gateway-1")?.Running).toBe(true);
+    expect(await readFile(path.join(gatewayData, "value.yml"), "utf8")).toBe(
+      "runtime: preserve\n",
+    );
+    expect(
+      await readFile(path.join(gatewayData, "generated.tmp"), "utf8"),
+    ).toBe("preserve\n");
+    expect(await readFile(cachePath, "utf8")).toBe(cacheBefore);
+    expect(
+      (await loadState(context)).instances.find(
+        (instance) => instance.id === "gateway-1",
+      ),
+    ).toEqual(gatewayBefore);
+  });
+
+  test.each(["shared", "server"])(
+    "rereads the %s template flag and makes an all-excluded restart a no-op",
+    async (templateSource) => {
+      const context = await lifecycleProject({
+        declarations: false,
+        extraServices: {
+          database: { "x-papucs.restartall": false },
+          cache: { "x-papucs.restartall": false },
+        },
+      });
+      const templatePath =
+        templateSource === "shared"
+          ? context.sharedServerComposeTemplatePath
+          : path.join(context.serversDir, "worker", "docker-compose.yml");
+      await writeFile(
+        templatePath,
+        JSON.stringify({
+          services: {
+            application:
+              templateSource === "shared"
+                ? { "x-papucs": { restartall: false } }
+                : { "x-papucs.restartall": false },
+          },
+        }),
+      );
+      const stateBefore = await readFile(context.runtimeStatePath, "utf8");
+      const composeBefore = await readFile(context.runtimeComposePath, "utf8");
+      const cachePath = path.join(context.runtimeCacheDir, "worker-1.json");
+      const cacheBefore = await readFile(cachePath, "utf8");
+      for (const service of ["worker-1", "database", "cache"])
+        containers.set(service, runningState());
+
+      expect(await commandRestartAll(context, reporter)).toEqual({
+        instances: [],
+        infrastructure: [],
+      });
+      expect(events).toEqual([]);
+      expect(await readFile(context.runtimeStatePath, "utf8")).toBe(
+        stateBefore,
+      );
+      expect(await readFile(context.runtimeComposePath, "utf8")).toBe(
+        composeBefore,
+      );
+      expect(await readFile(cachePath, "utf8")).toBe(cacheBefore);
+      expect(await readdir(context.runtimeInstancesDir)).toEqual([]);
+
+      const storedState = await loadState(context);
+      const worker = storedState.instances.find(
+        (instance) => instance.id === "worker-1",
+      )!;
+      if (templateSource === "shared")
+        worker.composeService["x-papucs"] = { restartall: false };
+      else worker.composeService["x-papucs.restartall"] = false;
+      await persistStateAndCompose(context, storedState);
+      await writeFile(
+        templatePath,
+        JSON.stringify({ services: { application: {} } }),
+      );
+      expect(await commandRestartAll(context, reporter)).toEqual({
+        instances: ["worker-1"],
+        infrastructure: [],
+      });
+      expect(events).toEqual(["stop worker-1", "rm worker-1", "up worker-1"]);
+    },
+  );
+
+  test("applies flags to infrastructure declared in server templates", async () => {
+    const context = await lifecycleProject();
+    await writeFile(
+      context.sharedServerComposeTemplatePath,
+      JSON.stringify({
+        services: {
+          application: {},
+          metrics: { image: "example/metrics", "x-papucs.restartall": false },
+          monitor: {
+            image: "example/monitor",
+            "x-papucs": { restartall: true },
+          },
+        },
+      }),
+    );
+    containers.set("metrics", runningState());
+    containers.set("monitor", runningState());
+
+    expect(await commandRestartAll(context, reporter)).toEqual({
+      instances: [],
+      infrastructure: ["monitor"],
+    });
+    expect(events).toEqual(["stop monitor", "up monitor"]);
+    expect(containers.get("metrics")?.Running).toBe(true);
+  });
+
+  test("rejects a stopped excluded provider before touching its selected consumer", async () => {
+    const context = await lifecycleProject({
+      declarations: false,
+      extraServices: { database: { "x-papucs.restartall": false } },
+    });
+    const stateBefore = await readFile(context.runtimeStatePath, "utf8");
+    containers.set("worker-1", runningState());
+    containers.set("cache", runningState());
+
+    await expect(commandRestartAll(context, reporter)).rejects.toThrow(
+      "dependency 'database' was not running",
+    );
+    expect(events).toEqual([]);
+    expect(await readFile(context.runtimeStatePath, "utf8")).toBe(stateBefore);
+    expect(await readdir(context.runtimeInstancesDir)).toEqual([]);
+  });
+
+  test("refreshes selected instance dependencies before validating current declarations", async () => {
+    const context = await lifecycleProject({
+      declarations: false,
+      extraServices: {
+        database: { "x-papucs.restartall": false },
+        cache: { "x-papucs.restartall": false },
+      },
+    });
+    await writeFile(
+      path.join(context.serversDir, "worker", "docker-compose.yml"),
+      JSON.stringify({
+        services: {
+          application: {
+            depends_on: { database: { condition: "service_healthy" } },
+          },
+        },
+      }),
+    );
+    const configPath = path.join(context.serversDir, "worker", "worker.yml");
+    const config = JSON.parse(await readFile(configPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    config.depends_on = [{ service: "database", condition: "service_healthy" }];
+    await writeFile(configPath, JSON.stringify(config));
+    for (const service of ["worker-1", "database", "cache"])
+      containers.set(service, runningState());
+
+    expect(await commandRestartAll(context, reporter)).toEqual({
+      instances: ["worker-1"],
+      infrastructure: [],
+    });
+    expect(events).toEqual(["stop worker-1", "rm worker-1", "up worker-1"]);
+    expect(
+      (await loadState(context)).instances.find(
+        (instance) => instance.id === "worker-1",
+      )?.composeService.depends_on,
+    ).toEqual({ database: { condition: "service_healthy" } });
+  });
+
+  test("waits for an excluded running one-shot provider before stopping its consumer", async () => {
+    const context = await lifecycleProject({
+      extraServices: {
+        initializer: { "x-papucs.restartall": false },
+        client: {
+          depends_on: {
+            initializer: { condition: "service_completed_successfully" },
+          },
+        },
+      },
+    });
+    containers.set("initializer", runningState());
+    containers.set("client", runningState());
+
+    expect(await commandRestartAll(context, reporter)).toEqual({
+      instances: [],
+      infrastructure: ["client"],
+    });
+    expect(events).toEqual(["wait initializer", "stop client", "up client"]);
+    expect(containers.get("initializer")?.Status).toBe("exited");
+  });
+
+  test.each(["unhealthy", "starting", undefined])(
+    "rejects excluded provider health %s before any consumer mutation",
+    async (healthStatus) => {
+      const context = await lifecycleProject({
+        extraServices: {
+          database: { "x-papucs.restartall": false },
+          client: {
+            depends_on: { database: { condition: "service_healthy" } },
+          },
+        },
+      });
+      const stateBefore = await readFile(context.runtimeStatePath, "utf8");
+      const composeBefore = await readFile(context.runtimeComposePath, "utf8");
+      containers.set("database", {
+        ...runningState(),
+        HealthStatus: healthStatus,
+      });
+      containers.set("client", runningState());
+
+      await expect(commandRestartAll(context, reporter)).rejects.toThrow(
+        "not healthy",
+      );
+      expect(events).toEqual([]);
+      expect(await readFile(context.runtimeStatePath, "utf8")).toBe(
+        stateBefore,
+      );
+      expect(await readFile(context.runtimeComposePath, "utf8")).toBe(
+        composeBefore,
+      );
+      expect(containers.get("client")?.Running).toBe(true);
+    },
+  );
+
+  test("allows an excluded healthy provider without restarting it", async () => {
+    const context = await lifecycleProject({
+      extraServices: {
+        database: { "x-papucs.restartall": false },
+        client: {
+          depends_on: { database: { condition: "service_healthy" } },
+        },
+      },
+    });
+    containers.set("database", runningState());
+    containers.set("client", runningState());
+
+    await commandRestartAll(context, reporter);
+
+    expect(events).toEqual(["stop client", "up client"]);
+    expect(containers.get("database")?.Running).toBe(true);
+    expect(
+      mockedRunCommand.mock.calls.some(
+        ([, args]) => args[0] === "inspect" && args.at(-1) === "database",
+      ),
+    ).toBe(true);
+  });
+
+  test("leaves a stopped optional excluded provider untouched", async () => {
+    const context = await lifecycleProject({
+      extraServices: {
+        metrics: { "x-papucs.restartall": false },
+        client: {
+          depends_on: {
+            metrics: { condition: "service_healthy", required: false },
+          },
+        },
+      },
+    });
+    containers.set("client", runningState());
+
+    await commandRestartAll(context, reporter);
+
+    expect(events).toEqual(["stop client", "up client"]);
+    expect(containers.has("metrics")).toBe(false);
+  });
+
+  test.each(["previous", "current"])(
+    "protects a running excluded consumer using %s transitive dependencies",
+    async (dependencySource) => {
+      const services = {
+        dashboard: {
+          "x-papucs.restartall": false,
+          depends_on: ["relay"],
+        },
+        relay: { "x-papucs.restartall": false, depends_on: ["database"] },
+      };
+      const context = await lifecycleProject({
+        extraServices: dependencySource === "previous" ? services : {},
+      });
+      await writeFile(
+        context.composeFilePath,
+        JSON.stringify({
+          services: {
+            database: { image: "example/db" },
+            cache: { image: "example/cache" },
+            ...(dependencySource === "current"
+              ? services
+              : {
+                  dashboard: { "x-papucs.restartall": false },
+                  relay: { "x-papucs.restartall": false },
+                }),
+          },
+        }),
+      );
+      const stateBefore = await readFile(context.runtimeStatePath, "utf8");
+      const composeBefore = await readFile(context.runtimeComposePath, "utf8");
+      containers.set("dashboard", runningState());
+      containers.set("database", runningState());
+
+      await expect(commandRestartAll(context, reporter)).rejects.toThrow(
+        /excluded.*dashboard|dashboard.*excluded/i,
+      );
+      expect(events).toEqual([]);
+      expect(await readFile(context.runtimeStatePath, "utf8")).toBe(
+        stateBefore,
+      );
+      expect(await readFile(context.runtimeComposePath, "utf8")).toBe(
+        composeBefore,
+      );
+    },
+  );
+
+  test.each(["nested", "dotted"])(
+    "rejects a nonboolean %s flag before mutations",
+    async (flagStyle) => {
+      const context = await lifecycleProject();
+      await writeFile(
+        context.composeFilePath,
+        JSON.stringify({
+          services: {
+            database:
+              flagStyle === "nested"
+                ? { "x-papucs": { restartall: "false" } }
+                : { "x-papucs.restartall": "false" },
+            cache: {},
+          },
+        }),
+      );
+      const stateBefore = await readFile(context.runtimeStatePath, "utf8");
+      const composeBefore = await readFile(context.runtimeComposePath, "utf8");
+      containers.set("database", runningState());
+
+      await expect(commandRestartAll(context, reporter)).rejects.toThrow(
+        /restartall.*boolean|boolean.*restartall/i,
+      );
+      expect(events).toEqual([]);
+      expect(await readFile(context.runtimeStatePath, "utf8")).toBe(
+        stateBefore,
+      );
+      expect(await readFile(context.runtimeComposePath, "utf8")).toBe(
+        composeBefore,
+      );
+    },
+  );
+
+  test("keeps targeted restart and stopall behavior for excluded services", async () => {
+    const context = await lifecycleProject({ declarations: false });
+    await writeFile(
+      path.join(context.serversDir, "worker", "docker-compose.yml"),
+      JSON.stringify({
+        services: { application: { "x-papucs.restartall": false } },
+      }),
+    );
+    for (const service of ["worker-1", "database", "cache"])
+      containers.set(service, runningState());
+
+    await commandRestartBatch(context, ["worker-1"], reporter);
+    expect(events).toEqual(["stop worker-1", "rm worker-1", "up worker-1"]);
+    events.length = 0;
+    await commandStopAll(context, reporter);
+    expect(
+      events
+        .filter((event) => event.startsWith("stop "))
+        .flatMap((event) => event.split(" ").slice(1)),
+    ).toContain("worker-1");
+    expect(events.at(-1)).toBe("down");
+    expect((await loadState(context)).instances).toEqual([]);
   });
 });
 
@@ -802,8 +1236,10 @@ describe("dependency lifecycle", () => {
       ([, args]) => args[0] === "inspect",
     )?.[1][2];
     expect(format).toContain(".State.ExitCode");
+    expect(format).toContain(".State.Health.Status");
     expect(format).not.toContain(".Env");
-    expect(format).not.toContain(".Health");
+    expect(format).not.toContain(".Health.Log");
+    expect(format).not.toContain("{{json .State.Health}}");
     expect(format).not.toContain("{{json .State}}");
   });
 

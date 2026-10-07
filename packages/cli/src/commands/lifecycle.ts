@@ -6,10 +6,12 @@ import {
   buildRuntimeServiceDefinition,
   loadServerComposeTemplate,
   persistStateAndCompose,
+  restartAllExcludedServices,
   resolveInstanceExact,
 } from "../compose";
 import {
   assertServicesStopped,
+  assertServicesHealthy,
   assertStoppedContainersSafe,
   waitServicesCompleted,
   getRunningContainerNames,
@@ -415,19 +417,31 @@ export async function commandRestartAll(
 ): Promise<{ instances: string[]; infrastructure: string[] }> {
   const state = await loadState(context);
   const running = await getRunningServices(context);
+  if (running.size === 0) {
+    reporter.log("No running Papucs services found.");
+    return { instances: [], infrastructure: [] };
+  }
+  // Discover policy from current templates before validating stored definitions
+  // or preparing instances; excluded instances keep their runtime and state.
+  const excluded = await restartAllExcludedServices(context, state, running);
+  const selected = new Set(running);
+  for (const service of excluded) {
+    selected.delete(service);
+    reporter.log(`Skipping service ${service} (x-papucs.restartall: false).`);
+  }
+  if (selected.size === 0) {
+    reporter.log("No running Papucs services selected for restartall.");
+    return { instances: [], infrastructure: [] };
+  }
   const runningInstances = state.instances.filter((instance) =>
-    running.has(instance.serviceName),
+    selected.has(instance.serviceName),
   );
   const managedServiceNames = new Set(
     state.instances.map((instance) => instance.serviceName),
   );
-  const infrastructure = [...running].filter(
+  const infrastructure = [...selected].filter(
     (service) => !managedServiceNames.has(service),
   );
-  if (infrastructure.length === 0 && runningInstances.length === 0) {
-    reporter.log("No running Papucs services found.");
-    return { instances: [], infrastructure: [] };
-  }
   await assertStoppedContainersSafe(context);
   const prepared = new Map<
     string,
@@ -441,14 +455,26 @@ export async function commandRestartAll(
   const starting = await buildRuntimeCompose(context, state);
   const stopping = await shutdownCompose(context, state);
   const graph = buildDependencyGraph(starting.services ?? {});
-  // Never start a previously stopped provider as an incidental side effect of restartall.
-  for (const service of running) {
+  const shutdownGraph = buildDependencyGraph(stopping.services ?? {});
+  for (const service of selected) {
     if (!graph.has(service))
       throw new PapucsError(
         `Running service '${service}' is absent from project Compose. Stop it explicitly before restartall.`,
       );
+    const excludedConsumers = [
+      ...dependentClosure(shutdownGraph, [service]),
+    ].filter((consumer) => running.has(consumer) && !selected.has(consumer));
+    if (excludedConsumers.length > 0) {
+      throw new PapucsError(
+        `Cannot restart '${service}': running dependent services are excluded from restartall: ${excludedConsumers.join(", ")}. Stop them explicitly first or exclude their providers too.`,
+      );
+    }
+  }
+  const healthyProviders = new Set<string>();
+  const completingProviders = new Set<string>();
+  // Never start a previously stopped provider as an incidental side effect of restartall.
+  for (const service of selected) {
     for (const provider of graph.get(service) ?? []) {
-      if (running.has(provider)) continue;
       const declaration = starting.services?.[service]?.depends_on;
       const condition =
         declaration &&
@@ -461,6 +487,15 @@ export async function commandRestartAll(
               >
             )[provider]
           : undefined;
+      if (running.has(provider)) {
+        if (excluded.has(provider)) {
+          if (condition?.condition === "service_healthy")
+            healthyProviders.add(provider);
+          if (condition?.condition === "service_completed_successfully")
+            completingProviders.add(provider);
+        }
+        continue;
+      }
       if (condition?.required === false) continue;
       if (condition?.condition === "service_completed_successfully") {
         await assertServicesStopped(context, [provider], true);
@@ -471,7 +506,11 @@ export async function commandRestartAll(
       );
     }
   }
-  await stopServices(context, stopping, running);
+  if (healthyProviders.size > 0)
+    await assertServicesHealthy(context, [...healthyProviders]);
+  if (completingProviders.size > 0)
+    await waitServicesCompleted(context, [...completingProviders]);
+  await stopServices(context, stopping, selected);
   for (const instance of runningInstances) {
     await runCompose(context, ["rm", "-f", instance.serviceName]);
     await materializeInstance(
@@ -487,7 +526,7 @@ export async function commandRestartAll(
   for (const [consumer, definition] of Object.entries(
     starting.services ?? {},
   )) {
-    if (!running.has(consumer)) continue;
+    if (!selected.has(consumer)) continue;
     const dependencies = definition.depends_on;
     if (
       !dependencies ||
@@ -505,7 +544,7 @@ export async function commandRestartAll(
         completedProviders.add(provider);
     }
   }
-  for (const layer of dependencyLayers(graph, running)) {
+  for (const layer of dependencyLayers(graph, selected)) {
     const oneShot = layer.filter((service) => completedProviders.has(service));
     const persistent = layer.filter(
       (service) => !completedProviders.has(service),

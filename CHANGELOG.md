@@ -2,6 +2,18 @@
 
 All notable changes follow semantic versioning.
 
+## 0.5.0
+
+- Add service-level `x-papucs.restartall: false` and nested
+  `x-papucs: { restartall: false }` Compose extensions to exclude infrastructure
+  and managed workloads from `papucs restartall`.
+- Read current restart policies on every invocation, preserving excluded
+  instances' runtime files, sync cache, and saved state.
+- Keep excluded providers running and reject restarts that would interrupt a
+  running excluded consumer's dependencies before stopping any service.
+- Update development test tooling and source-map dependencies to clear release
+  audit findings.
+
 ## 0.4.0
 
 - **Breaking:** Require top-level `papucs_port_base` in every server YAML file,

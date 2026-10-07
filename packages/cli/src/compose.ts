@@ -199,6 +199,33 @@ export async function loadServerComposeTemplate(
   };
 }
 
+export function isRestartAllEnabled(
+  service: RuntimeComposeService,
+  serviceName = "Compose service",
+): boolean {
+  const extension = service["x-papucs"];
+  const nested =
+    extension !== null &&
+    typeof extension === "object" &&
+    !Array.isArray(extension)
+      ? (extension as Record<string, unknown>).restartall
+      : undefined;
+  const dotted = service["x-papucs.restartall"];
+  for (const value of [nested, dotted]) {
+    if (value !== undefined && typeof value !== "boolean") {
+      throw new PapucsError(
+        `Invalid x-papucs.restartall for '${serviceName}': expected a boolean.`,
+      );
+    }
+  }
+  if (nested !== undefined && dotted !== undefined && nested !== dotted) {
+    throw new PapucsError(
+      `Conflicting x-papucs.restartall settings for '${serviceName}'.`,
+    );
+  }
+  return (dotted ?? nested) !== false;
+}
+
 export function buildRuntimeServiceDefinition(options: {
   templateService: RuntimeComposeService;
   image: string;
@@ -218,7 +245,18 @@ export function buildRuntimeServiceDefinition(options: {
     typeof extension === "object" &&
     !Array.isArray(extension) &&
     (extension as Record<string, unknown>).inject_environment === true;
+  isRestartAllEnabled(service, options.serverName);
   delete service["x-papucs"];
+  if (
+    extension !== null &&
+    typeof extension === "object" &&
+    !Array.isArray(extension) &&
+    (extension as Record<string, unknown>).restartall !== undefined
+  ) {
+    service["x-papucs"] = {
+      restartall: (extension as Record<string, unknown>).restartall,
+    };
+  }
   if (injectEnvironment) {
     service.environment = denormalizeEnvironment({
       ...options.variables,
@@ -243,10 +281,10 @@ function mergeSection(
   }
 }
 
-export async function buildRuntimeCompose(
+async function loadProjectComposeTemplates(
   context: ProjectContext,
   state: RuntimeState,
-): Promise<ComposeDocument> {
+) {
   if (!existsSync(context.composeFilePath)) {
     throw new PapucsError(
       `Root Compose template not found: ${context.composeFilePath}`,
@@ -264,6 +302,7 @@ export async function buildRuntimeCompose(
   const volumes = deepClone(rootDocument.volumes ?? {});
 
   const serverConfigs = new Map<string, ServerConfig>();
+  const templates = new Map<string, ComposeTemplate>();
   for (const instance of state.instances) {
     if (!serverConfigs.has(instance.serverType)) {
       const serverConfig = await loadServerConfig(context, instance.serverType);
@@ -273,11 +312,46 @@ export async function buildRuntimeCompose(
         instance.serverType,
         serverConfig,
       );
+      templates.set(instance.serverType, template);
       mergeSection(services, template.infraServices, "service");
       mergeSection(networks, template.topLevelNetworks, "network");
       mergeSection(volumes, template.topLevelVolumes, "volume");
     }
   }
+  return { services, networks, volumes, serverConfigs, templates };
+}
+
+export async function restartAllExcludedServices(
+  context: ProjectContext,
+  state: RuntimeState,
+  running: Iterable<string>,
+): Promise<Set<string>> {
+  const { services, templates } = await loadProjectComposeTemplates(
+    context,
+    state,
+  );
+  const instances = new Map(
+    state.instances.map((instance) => [instance.serviceName, instance]),
+  );
+  const excluded = new Set<string>();
+  for (const service of running) {
+    const instance = instances.get(service);
+    const definition = instance
+      ? templates.get(instance.serverType)!.appServiceDefinition
+      : services[service];
+    if (definition && !isRestartAllEnabled(definition, service)) {
+      excluded.add(service);
+    }
+  }
+  return excluded;
+}
+
+export async function buildRuntimeCompose(
+  context: ProjectContext,
+  state: RuntimeState,
+): Promise<ComposeDocument> {
+  const { services, networks, volumes, serverConfigs } =
+    await loadProjectComposeTemplates(context, state);
   const infrastructureServices = new Set(Object.keys(services));
   for (const instance of state.instances) {
     if (Object.hasOwn(services, instance.serviceName)) {
@@ -295,6 +369,9 @@ export async function buildRuntimeCompose(
       instances: state.instances,
       infrastructureServices,
     });
+  }
+  for (const [name, service] of Object.entries(services)) {
+    isRestartAllEnabled(service, name);
   }
   buildDependencyGraph(services);
 

@@ -103,6 +103,7 @@ interface ContainerExitState {
   ExitCode?: number;
   OOMKilled?: boolean;
   Status?: string;
+  HealthStatus?: string;
 }
 
 async function containerExitState(
@@ -114,7 +115,7 @@ async function containerExitState(
     [
       "inspect",
       "--format",
-      '{"Running":{{.State.Running}},"Restarting":{{.State.Restarting}},"Status":{{json .State.Status}},"ExitCode":{{.State.ExitCode}},"OOMKilled":{{.State.OOMKilled}}}',
+      '{"Running":{{.State.Running}},"Restarting":{{.State.Restarting}},"Status":{{json .State.Status}},"ExitCode":{{.State.ExitCode}},"OOMKilled":{{.State.OOMKilled}},"HealthStatus":{{if .State.Health}}{{json .State.Health.Status}}{{else}}null{{end}}}',
       container.id,
     ],
     { cwd: context.root },
@@ -124,6 +125,24 @@ async function containerExitState(
       `Could not verify stop of '${container.service}'. Dependencies kept running.`,
     );
   return JSON.parse(inspected.stdout) as ContainerExitState;
+}
+
+export async function assertServicesHealthy(
+  context: ProjectContext,
+  services: string[],
+): Promise<void> {
+  for (const container of await projectServiceContainers(context, services)) {
+    const state = await containerExitState(context, container);
+    if (
+      !state.Running ||
+      state.Restarting ||
+      state.HealthStatus !== "healthy"
+    ) {
+      throw new PapucsError(
+        `Excluded dependency '${container.service}' is not healthy. Wait for it to become healthy before restartall.`,
+      );
+    }
+  }
 }
 
 /** A retry must not erase a previous failed stop merely because its process is now exited. */
