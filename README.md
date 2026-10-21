@@ -85,6 +85,7 @@ papucs doctor
 papucs config validate
 papucs dev <server_type>
 papucs up <server_type...>
+papucs start <instance_id|service...> [--wait-timeout <seconds>] [--json]
 papucs attach <instance_id>
 papucs down <instance_id>
 papucs down <server_type> --all
@@ -94,7 +95,8 @@ papucs rebuild <instance_id>
 papucs pull <instance_id> <runtime_path|dir/*> <layer>
 papucs sync <server_type> [--dry-run]
 papucs status [server_type] [--json]
-papucs stopall
+papucs diagnose [instance_id|service] [--tail <lines>] [--json]
+papucs stopall [--dry-run] [--json]
 papucs build <server_type...>
 papucs build --actions [--push] [--json]
 papucs workflow add ghcr-build [--dry-run]
@@ -102,6 +104,12 @@ papucs workflow add ghcr-build [--dry-run]
 
 `stopall` is project-scoped. It never enumerates or stops unrelated Docker
 Compose projects.
+
+Use `start` to recover existing stopped containers and their dependencies
+without rebuilding runtime data. Use `stopall --dry-run` to preview dependency
+order and configuration differences, or `diagnose` to inspect shutdown evidence.
+See the [lifecycle reference](docs/cli.md#local-lifecycle) for their scope and
+limits.
 
 Server definitions can declare configurable runtime dependencies on Compose
 services, server types, or managed instances. Papucs resolves the graph before

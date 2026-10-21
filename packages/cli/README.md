@@ -22,6 +22,20 @@ shared, and server-specific Compose templates. Omitted flags default to `true`.
 Other lifecycle commands are unaffected. A restart is refused before stopping
 services if an excluded running consumer depends on a selected provider.
 
+Recover an existing stopped instance without rebuilding its runtime files:
+
+```bash
+npx papucs start spawn-1
+npx papucs stopall --dry-run
+npx papucs diagnose spawn-1 --json
+```
+
+`start` includes existing dependencies and fails before mutation if required
+containers or managed runtime data are missing. The shutdown preview compares
+source, generated Compose and Docker lifecycle settings. Diagnostics include
+bounded, redacted logs and available Docker event evidence; review before
+sharing.
+
 See the [full documentation](https://github.com/RisDN/papucs#readme).
 
 Requires Node.js 22+ and Docker Compose. MIT licensed.

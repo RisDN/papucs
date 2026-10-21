@@ -46,3 +46,24 @@ example `PAPUCS_PORT_2=26000`. The top-level base is still required.
 Papucs does not automatically skip occupied ports. Old `PAPUCS_PORT_BASE`,
 `PORT_BASE`, and `<SERVER_TYPE>_PORT_BASE` environment variables no longer
 configure the base port.
+
+## Failed or unproven shutdown
+
+```bash
+papucs diagnose spawn-1
+papucs stopall --dry-run
+```
+
+Check the actual exit/OOM state, observed signals, configured stop timeout and
+log excerpt. Exit `137` can follow a forced kill; exit `255` is not proof of a
+successful application save. The preview shows which providers must remain
+running and whether source settings differ from the generated Compose or actual
+container. Increasing a timeout in a source file does not itself update an
+existing container's configuration.
+
+After fixing the cause, an existing stopped container can be recovered with
+`papucs start spawn-1`; infrastructure service names such as `database` are also
+accepted. This starts existing providers first and retains runtime data. It does
+not apply source changes or recreate missing containers. Once the application is
+ready, retry `stopall`. See [lifecycle commands](cli.md#local-lifecycle) for
+readiness, diagnostic limitations and source-rematerialization behavior.
