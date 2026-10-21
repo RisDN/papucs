@@ -34,6 +34,13 @@ export async function loadState(
   context: ProjectContext,
 ): Promise<RuntimeState> {
   await ensureRuntimeDirectories(context);
+  return await loadStateReadOnly(context);
+}
+
+/** Read-only commands must not create an empty runtime or mutate its metadata. */
+export async function loadStateReadOnly(
+  context: ProjectContext,
+): Promise<RuntimeState> {
   if (!existsSync(context.runtimeStatePath)) {
     return emptyState();
   }
