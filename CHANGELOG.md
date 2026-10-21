@@ -2,6 +2,19 @@
 
 All notable changes follow semantic versioning.
 
+## 0.6.0
+
+- Add `start` to recover existing containers and their dependencies without
+  rebuilding runtime data, with bounded readiness waits and JSON output.
+- Add read-only `diagnose` reports and automatic stop-failure diagnostics with
+  Docker signal/exit evidence, configured timeouts and bounded, redacted logs.
+- Add `stopall --dry-run` with dependency layers, blockers and source/generated/
+  actual lifecycle setting comparisons. Add JSON output for `stopall`.
+- Handle absent Docker healthcheck fields when verifying container state.
+- Add an isolated Docker lifecycle regression covering retained runtime data,
+  forced-stop evidence, dependency protection and recovery through complete
+  cleanup.
+
 ## 0.5.0
 
 - Add service-level `x-papucs.restartall: false` and nested
