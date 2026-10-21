@@ -420,7 +420,11 @@ describe("read-only stop diagnostics", () => {
         'password="unterminated secret with spaces',
         "git+ssh.v1://user:custom-scheme-password@host/path?token=query-secret",
         "-----BEGIN PRIVATE KEY-----\nprivate-key-body\n-----END PRIVATE KEY-----",
-        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature-_",
+        [
+          Buffer.from('{"alg":"HS256"}').toString("base64url"),
+          Buffer.from('{"sub":"test-only"}').toString("base64url"),
+          "signature-_", // Deliberately invalid; this token is only a redaction fixture.
+        ].join("."),
       ].join("\n"),
     );
     const logs = (
