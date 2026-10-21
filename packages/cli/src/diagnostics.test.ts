@@ -381,6 +381,70 @@ describe("read-only stop diagnostics", () => {
     );
   });
 
+  test("handles long URI, credential-key and JWT-like tokens without suffix rescans", async () => {
+    const context = await fixture();
+    await writeFile(
+      context.envPath,
+      `DIAGNOSTIC_NOTE=${"A.-".repeat(30000)}\n`,
+    );
+    commands(
+      "",
+      [
+        "A.-".repeat(30000),
+        "secret".repeat(15000),
+        "eyJaaa-".repeat(13000),
+        "Completed stop with exit=137",
+      ].join("\n"),
+    );
+    const item = (await collectStopDiagnostics(context)).containers[0]!;
+    expect(item.logs.at(-1)).toBe("Completed stop with exit=137");
+    expect(Buffer.byteLength(item.logs.join("\n"))).toBeLessThanOrEqual(8192);
+    expect(item.warnings).toContain(
+      "Log excerpt truncated to diagnostic limits.",
+    );
+  });
+
+  test("redacts complete credential structures before truncation and literal substitutions", async () => {
+    const context = await fixture();
+    await writeFile(
+      context.envPath,
+      "HEADER_SECRET=PRIVATE\nAPI_TOKEN=cross-cut-secret-value\n",
+    );
+    commands(
+      "",
+      [
+        `${"A".repeat(2038)}cross-cut-secret-value`,
+        `${"B".repeat(2020)} password=long-password-crossing-truncation`,
+        'msg="connection failed db.password=embedded-password"',
+        '"db.password": "quoted password with spaces"',
+        'password="unterminated secret with spaces',
+        "git+ssh.v1://user:custom-scheme-password@host/path?token=query-secret",
+        "-----BEGIN PRIVATE KEY-----\nprivate-key-body\n-----END PRIVATE KEY-----",
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.signature-_",
+      ].join("\n"),
+    );
+    const logs = (
+      await collectStopDiagnostics(context)
+    ).containers[0]!.logs.join("\n");
+    for (const fragment of [
+      "cross-cut",
+      "long-password",
+      "embedded-password",
+      "quoted password",
+      "unterminated secret",
+      "custom-scheme-password",
+      "query-secret",
+      "private-key-body",
+      "eyJhbGci",
+    ])
+      expect(logs).not.toContain(fragment);
+    expect(logs).toContain(
+      "git+ssh.v1://[REDACTED]@host/path?token=[REDACTED]",
+    );
+    expect(logs).toContain('msg="connection failed db.password=[REDACTED]');
+    expect(logs).toContain("[REDACTED]");
+  });
+
   test("recognizes URI credentials under non-sensitive environment keys", async () => {
     const context = await fixture();
     await writeFile(
@@ -392,6 +456,32 @@ describe("read-only stop diagnostics", () => {
       await collectStopDiagnostics(context)
     ).containers[0]!.logs.join("\n");
     expect(logs).toBe("tempo emitted [REDACTED] and [REDACTED]");
+  });
+
+  test("unions known and structural secret ranges without exposing surrounding secret fragments", async () => {
+    const context = await fixture();
+    await writeFile(
+      context.envPath,
+      [
+        "API_TOKEN='prefix token=inner suffix'",
+        "DB_PASSWORD=p@ssword",
+        "HEADER_SECRET=PRIVATE",
+      ].join("\n"),
+    );
+    commands(
+      "",
+      [
+        "prefix token=inner suffix",
+        "postgres://user:p@ssword@host/db",
+        "-----BEGIN PRIVATE KEY-----\nprivate-body\n-----END PRIVATE KEY-----",
+      ].join("\n"),
+    );
+    const logs = (await collectStopDiagnostics(context)).containers[0]!.logs;
+    expect(logs).toEqual([
+      "[REDACTED]",
+      "postgres://[REDACTED]@host/db",
+      "[REDACTED PRIVATE KEY]",
+    ]);
   });
 
   test("uses warnings for unavailable evidence without leaking command errors", async () => {

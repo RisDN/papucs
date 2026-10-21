@@ -14,6 +14,9 @@ const MAX_LINE_BYTES = 2048;
 const MAX_ENV_BYTES = 128 * 1024;
 const SENSITIVE_KEY =
   /password|passwd|pwd|token|secret|api[_-]?key|authorization/i;
+// A scheme may contain dots and hyphens: a word boundary still retries at every
+// punctuation-separated suffix. Only the start of the entire token is a candidate.
+const URI_CREDENTIALS = /(?<![a-z\d+.-])([a-z][a-z\d+.-]*:\/\/)([^\s/@]+)@/gi;
 const STOP_EXIT_CODES = [0, 143];
 const EVENT_ACTIONS = new Set(["kill", "die", "stop", "start"]);
 const EVENT_FORMAT =
@@ -86,30 +89,105 @@ function limitBytes(value: string, limit: number): string {
   return `${prefix}...`;
 }
 
+interface RedactionRange {
+  start: number;
+  end: number;
+  replacement: string;
+}
+
+function findCredentialFields(value: string, ranges: RedactionRange[]): void {
+  // Parse a key once, then classify it. Putting the sensitive-key alternatives
+  // between two greedy key prefixes repeatedly rescans keys such as secretsecret.
+  const fields = /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]+)["']?\s*[:=]\s*/g;
+  for (let match = fields.exec(value); match; match = fields.exec(value)) {
+    if (!SENSITIVE_KEY.test(match[1]!)) continue;
+    const start = fields.lastIndex;
+    let end = start;
+    const quote = value[start];
+    if (quote === '"' || quote === "'") {
+      end++;
+      while (end < value.length && value[end] !== "\n") {
+        if (value[end] === quote) {
+          end++;
+          break;
+        }
+        if (
+          value[end] === "\\" &&
+          end + 1 < value.length &&
+          value[end + 1] !== "\n"
+        )
+          end++;
+        end++;
+      }
+    } else {
+      while (end < value.length && !/[\s,;&]/.test(value[end]!)) end++;
+    }
+    if (end === start) continue;
+    ranges.push({ start, end, replacement: "[REDACTED]" });
+    fields.lastIndex = end;
+  }
+}
+
 function redact(value: string, secrets: string[]): string {
-  let result = cleanText(value);
+  const text = cleanText(value);
+  const ranges: RedactionRange[] = [];
+  const addMatches = (
+    pattern: RegExp,
+    options: {
+      prefixGroup?: number;
+      suffixLength?: number;
+      replacement?: string;
+    } = {},
+  ) => {
+    for (const match of text.matchAll(pattern)) {
+      ranges.push({
+        start:
+          match.index +
+          (options.prefixGroup ? match[options.prefixGroup]!.length : 0),
+        end: match.index + match[0].length - (options.suffixLength ?? 0),
+        replacement: options.replacement ?? "[REDACTED]",
+      });
+    }
+  };
+  // Find every range on the same text. Replacing a literal first can hide a PEM
+  // header; replacing structure first can split a known secret and expose its
+  // remaining parts. Union overlapping ranges before making any replacement.
+  addMatches(
+    /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----[\s\S]*?(?:-----END (?:[A-Z ]+ )?PRIVATE KEY-----|$)/g,
+    { replacement: "[REDACTED PRIVATE KEY]" },
+  );
+  addMatches(URI_CREDENTIALS, { prefixGroup: 1, suffixLength: 1 });
+  addMatches(/(\b(?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=-]+/gi, {
+    prefixGroup: 1,
+  });
+  findCredentialFields(text, ranges);
+  addMatches(
+    /(?<![A-Za-z0-9_.-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?![A-Za-z0-9_-])/g,
+  );
   if (secrets.length > 0) {
     const pattern = secrets
       .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
       .join("|");
-    result = result.replace(new RegExp(pattern, "g"), "[REDACTED]");
+    addMatches(new RegExp(pattern, "g"));
   }
-  result = result
-    .replace(
-      /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----[\s\S]*?(?:-----END (?:[A-Z ]+ )?PRIVATE KEY-----|$)/g,
-      "[REDACTED PRIVATE KEY]",
-    )
-    .replace(/([a-z][a-z\d+.-]*:\/\/)[^\s/@]+@/gi, "$1[REDACTED]@")
-    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, "$1 [REDACTED]")
-    .replace(
-      /(\b[A-Za-z0-9_.-]*(?:password|passwd|pwd|token|secret|api[_-]?key|authorization)[A-Za-z0-9_.-]*["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;&]+)/gi,
-      "$1[REDACTED]",
-    )
-    .replace(
-      /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
-      "[REDACTED]",
-    );
-  return result;
+  ranges.sort(
+    (left, right) => left.start - right.start || right.end - left.end,
+  );
+  const merged: RedactionRange[] = [];
+  for (const range of ranges) {
+    const previous = merged.at(-1);
+    if (previous && range.start <= previous.end)
+      previous.end = Math.max(previous.end, range.end);
+    else merged.push(range);
+  }
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const range of merged) {
+    parts.push(text.slice(cursor, range.start), range.replacement);
+    cursor = range.end;
+  }
+  parts.push(text.slice(cursor));
+  return parts.join("");
 }
 
 function withinRoot(root: string, candidate: string): boolean {
@@ -171,10 +249,8 @@ async function knownSecrets(
       if (SENSITIVE_KEY.test(key)) addSecret(value);
       // Connection URLs may contain credentials even under a non-secret key such
       // as DATABASE_URL. Retain passwords and sensitive query values for masking.
-      for (const match of value.matchAll(
-        /[a-z][a-z\d+.-]*:\/\/([^\s/@]+)@/gi,
-      )) {
-        const userinfo = match[1]!;
+      for (const match of value.matchAll(URI_CREDENTIALS)) {
+        const userinfo = match[2]!;
         const separator = userinfo.indexOf(":");
         if (separator >= 0) addSecret(decoded(userinfo.slice(separator + 1)));
       }

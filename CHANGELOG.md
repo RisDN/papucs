@@ -11,6 +11,7 @@ All notable changes follow semantic versioning.
 - Add `stopall --dry-run` with dependency layers, blockers and source/generated/
   actual lifecycle setting comparisons. Add JSON output for `stopall`.
 - Handle absent Docker healthcheck fields when verifying container state.
+- Avoid repeated scans of long tokens while redacting diagnostic logs.
 - Add an isolated Docker lifecycle regression covering retained runtime data,
   forced-stop evidence, dependency protection and recovery through complete
   cleanup.
