@@ -64,6 +64,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Isolated lifecycle recovery regression
+        run: |
+          docker pull node:22-alpine
+          npm run test:docker:lifecycle
       - name: Create project with local CLI
         shell: bash
         run: |
