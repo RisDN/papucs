@@ -18,7 +18,7 @@ import {
   getRunningServices,
   runCompose,
 } from "../docker";
-import { readYamlObject } from "../config";
+import { buildShutdownCompose } from "../shutdown";
 import {
   buildDependencyGraph,
   dependencyLayers,
@@ -248,37 +248,6 @@ export async function commandUpBatch(
   return instances;
 }
 
-async function shutdownCompose(
-  context: ProjectContext,
-  state: RuntimeState,
-): Promise<ComposeDocument> {
-  const planned = await buildRuntimeCompose(context, state);
-  const graph = buildDependencyGraph(planned.services ?? {});
-  if (existsSync(context.runtimeComposePath)) {
-    const actual = await readYamlObject<ComposeDocument>(
-      context.runtimeComposePath,
-    );
-    const previous = buildDependencyGraph(actual.services ?? {});
-    for (const [service, providers] of previous) {
-      if (!graph.has(service)) graph.set(service, new Set());
-      for (const provider of providers) graph.get(service)?.add(provider);
-    }
-  }
-  dependencyLayers(graph); // A reversed dependency edit can introduce a cycle in the conservative union.
-  return {
-    ...planned,
-    services: Object.fromEntries(
-      [...graph].map(([service, providers]) => [
-        service,
-        {
-          ...planned.services?.[service],
-          depends_on: [...providers],
-        },
-      ]),
-    ),
-  };
-}
-
 async function stopServices(
   context: ProjectContext,
   document: ComposeDocument,
@@ -297,7 +266,7 @@ async function preflightTargets(
   targets: RuntimeInstance[],
 ): Promise<Set<string>> {
   const graph = buildDependencyGraph(
-    (await shutdownCompose(context, state)).services ?? {},
+    (await buildShutdownCompose(context, state)).services ?? {},
   );
   const running = await getRunningServices(context);
   for (const target of targets) {
@@ -453,7 +422,7 @@ export async function commandRestartAll(
       await prepareInstance(context, instance, reporter),
     );
   const starting = await buildRuntimeCompose(context, state);
-  const stopping = await shutdownCompose(context, state);
+  const stopping = await buildShutdownCompose(context, state);
   const graph = buildDependencyGraph(starting.services ?? {});
   const shutdownGraph = buildDependencyGraph(stopping.services ?? {});
   for (const service of selected) {
@@ -678,7 +647,7 @@ export async function commandStopAll(
 ): Promise<void> {
   const state = await loadState(context);
   const running = await getRunningServices(context);
-  const document = await shutdownCompose(context, state);
+  const document = await buildShutdownCompose(context, state);
   await assertStoppedContainersSafe(context);
   if (existsSync(context.runtimeComposePath)) {
     await stopServices(context, document, running);
