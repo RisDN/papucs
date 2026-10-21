@@ -19,11 +19,15 @@ import {
   commandUpBatch,
 } from "./commands/lifecycle";
 import { commandWorkflowAdd } from "./commands/workflow";
+import { commandStart } from "./commands/start";
+import { commandStopPlan, formatStopPlan } from "./commands/stop-plan";
+import { collectStopDiagnostics, formatStopDiagnostics } from "./diagnostics";
 import { resolveProjectContext } from "./context";
 import { runCompose } from "./docker";
-import { errorMessage, PapucsError, UsageError } from "./errors";
+import { errorMessage, PapucsError, StopFailure, UsageError } from "./errors";
 import { withProjectLock } from "./lock";
 import { createReporter, jsonEnvelope, printJson } from "./output";
+import { loadStateReadOnly } from "./state";
 import type { ProjectContext, Reporter } from "./types";
 import { VERSION } from "./version";
 
@@ -36,6 +40,26 @@ interface GlobalOptions {
 
 interface JsonOption {
   json?: boolean;
+}
+
+function integerOption(
+  value: string,
+  name: string,
+  minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER,
+): number {
+  const parsed = Number(value);
+  if (
+    !/^\d+$/.test(value) ||
+    !Number.isSafeInteger(parsed) ||
+    parsed < minimum ||
+    parsed > maximum
+  ) {
+    throw new UsageError(
+      `${name} must be an integer between ${minimum} and ${maximum}.`,
+    );
+  }
+  return parsed;
 }
 
 function buildProgram(): Command {
@@ -71,7 +95,23 @@ function buildProgram(): Command {
   ): Promise<T> => {
     const project = await context();
     return await withProjectLock(project, commandName, async () => {
-      return await action(project);
+      const since = new Date().toISOString();
+      try {
+        return await action(project);
+      } catch (error) {
+        if (error instanceof StopFailure) {
+          try {
+            error.diagnostics = await collectStopDiagnostics(project, {
+              services: error.services,
+              since: error.previousStop ? undefined : since,
+            });
+          } catch {
+            error.diagnosticsWarning =
+              "Shutdown diagnostics unavailable; the original failure is retained.";
+          }
+        }
+        throw error;
+      }
     });
   };
 
@@ -150,6 +190,75 @@ function buildProgram(): Command {
     .action(async (instance: string) => {
       await commandAttach(await context(), instance);
     });
+
+  program
+    .command("start <targets...>")
+    .description(
+      "start existing containers and dependencies without rebuilding runtime data",
+    )
+    .option("--wait-timeout <seconds>", "maximum readiness wait", "120")
+    .option("--json", "emit stable JSON")
+    .action(
+      async (
+        targets: string[],
+        options: JsonOption & { waitTimeout: string },
+      ) => {
+        const waitTimeout = integerOption(
+          options.waitTimeout,
+          "--wait-timeout",
+          1,
+        );
+        const result = await mutate(
+          "start",
+          async (project) =>
+            await commandStart(
+              project,
+              targets,
+              { waitTimeout },
+              reporter(options),
+            ),
+        );
+        if (options.json) printJson(jsonEnvelope("start", result));
+      },
+    );
+
+  program
+    .command("diagnose [target]")
+    .description(
+      "read container shutdown state, recent Docker events and bounded logs",
+    )
+    .option(
+      "--tail <lines>",
+      "log lines per container (0 disables logs, maximum 100)",
+      "20",
+    )
+    .option("--json", "emit stable JSON")
+    .action(
+      async (
+        target: string | undefined,
+        options: JsonOption & { tail: string },
+      ) => {
+        const tail = integerOption(options.tail, "--tail", 0, 100);
+        const project = await context();
+        const state = await loadStateReadOnly(project);
+        const instance = target
+          ? state.instances.find(
+              (item) =>
+                item.id === target ||
+                item.serviceName === target ||
+                item.serverName === target,
+            )
+          : undefined;
+        const result = await collectStopDiagnostics(project, {
+          services: target ? [instance?.serviceName ?? target] : undefined,
+          tail,
+        });
+        if (options.json)
+          printJson(jsonEnvelope("diagnose", result, result.warnings));
+        else
+          for (const line of formatStopDiagnostics(result)) console.log(line);
+      },
+    );
 
   program
     .command("down <target>")
@@ -262,10 +371,24 @@ function buildProgram(): Command {
   program
     .command("stopall")
     .description("stop only the current Papucs project")
-    .action(async () => {
+    .option(
+      "--dry-run",
+      "show stop order, blockers and configuration differences without changing anything",
+    )
+    .option("--json", "emit stable JSON")
+    .action(async (options: JsonOption & { dryRun?: boolean }) => {
+      if (options.dryRun) {
+        const result = await commandStopPlan(await context());
+        if (options.json)
+          printJson({ ...jsonEnvelope("stopall", result), ok: result.ok });
+        else for (const line of formatStopPlan(result)) console.log(line);
+        if (!result.ok) process.exitCode = 1;
+        return;
+      }
       await mutate("stopall", async (project) => {
-        await commandStopAll(project, reporter());
+        await commandStopAll(project, reporter(options));
       });
+      if (options.json) printJson(jsonEnvelope("stopall", { stopped: true }));
     });
 
   program
@@ -350,7 +473,15 @@ function buildProgram(): Command {
 }
 
 function commandName(argv: string[]): string {
-  return argv.find((value) => !value.startsWith("-")) ?? "papucs";
+  for (let index = 0; index < argv.length; index++) {
+    const value = argv[index]!;
+    if (value === "--project" || value === "--config") {
+      index++;
+      continue;
+    }
+    if (!value.startsWith("-")) return value;
+  }
+  return "papucs";
 }
 
 function wantsJson(argv: string[]): boolean {
@@ -387,10 +518,24 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         command: commandName(argv),
         data: null,
         warnings: [],
-        error: { message },
+        error: {
+          message,
+          ...(error instanceof StopFailure && error.diagnostics
+            ? { diagnostics: error.diagnostics }
+            : {}),
+          ...(error instanceof StopFailure && error.diagnosticsWarning
+            ? { diagnosticsWarning: error.diagnosticsWarning }
+            : {}),
+        },
       });
     } else {
       console.error(message);
+      if (error instanceof StopFailure) {
+        if (error.diagnostics)
+          for (const line of formatStopDiagnostics(error.diagnostics))
+            console.error(line);
+        if (error.diagnosticsWarning) console.error(error.diagnosticsWarning);
+      }
     }
     process.exitCode = error instanceof PapucsError ? error.exitCode : 1;
   }

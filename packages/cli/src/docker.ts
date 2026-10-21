@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import type { ProjectContext } from "./types";
-import { PapucsError } from "./errors";
+import { PapucsError, StopFailure } from "./errors";
 import { runCommand, type CommandResult } from "./process";
 
 export async function runCompose(
@@ -19,9 +19,9 @@ export async function runCompose(
   });
   if (result.code !== 0 && options.allowFailure !== true) {
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n");
-    throw new PapucsError(
-      `docker compose ${args.join(" ")} failed.${details ? `\n${details}` : ""}`,
-    );
+    const message = `docker compose ${args.join(" ")} failed.${details ? `\n${details}` : ""}`;
+    if (args[0] === "stop") throw new StopFailure(message, args.slice(1));
+    throw new PapucsError(message);
   }
   return result;
 }
@@ -89,8 +89,9 @@ async function projectServiceContainers(
     .filter((container) => !services || services.includes(container.service));
   for (const service of services ?? []) {
     if (!containers.some((container) => container.service === service)) {
-      throw new PapucsError(
+      throw new StopFailure(
         `Stop of '${service}' is unproven: container is missing. Dependencies kept running.`,
+        services ?? [service],
       );
     }
   }
@@ -115,7 +116,7 @@ async function containerExitState(
     [
       "inspect",
       "--format",
-      '{"Running":{{.State.Running}},"Restarting":{{.State.Restarting}},"Status":{{json .State.Status}},"ExitCode":{{.State.ExitCode}},"OOMKilled":{{.State.OOMKilled}},"HealthStatus":{{if .State.Health}}{{json .State.Health.Status}}{{else}}null{{end}}}',
+      '{"Running":{{.State.Running}},"Restarting":{{.State.Restarting}},"Status":{{json .State.Status}},"ExitCode":{{.State.ExitCode}},"OOMKilled":{{.State.OOMKilled}},"HealthStatus":{{with index .State "Health"}}{{json .Status}}{{else}}null{{end}}}',
       container.id,
     ],
     { cwd: context.root },
@@ -157,8 +158,10 @@ export async function assertStoppedContainersSafe(
       state.OOMKilled ||
       ![0, 143].includes(state.ExitCode ?? -1)
     ) {
-      throw new PapucsError(
+      throw new StopFailure(
         `Service '${container.service}' has an unproven previous stop (status=${state.Status}, exit=${state.ExitCode}, OOM=${state.OOMKilled}). Runtime state retained.`,
+        [container.service],
+        true,
       );
     }
   }
@@ -179,9 +182,10 @@ export async function assertServicesStopped(
       state.OOMKilled ||
       !(successfulCompletion ? [0] : [0, 143]).includes(state.ExitCode ?? -1)
     ) {
-      throw new PapucsError(
-        `Service '${container.service}' did not stop cleanly (status=${state.Status}, exit=${state.ExitCode}, OOM=${state.OOMKilled}). Dependencies kept running.`,
-      );
+      const message = `Service '${container.service}' did not stop cleanly (status=${state.Status}, exit=${state.ExitCode}, OOM=${state.OOMKilled}). Dependencies kept running.`;
+      // A completed job requires exit 0; ordinary shutdown evidence accepts SIGTERM too.
+      if (successfulCompletion) throw new PapucsError(message);
+      throw new StopFailure(message, services);
     }
   }
 }

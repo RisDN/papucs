@@ -1236,7 +1236,8 @@ describe("dependency lifecycle", () => {
       ([, args]) => args[0] === "inspect",
     )?.[1][2];
     expect(format).toContain(".State.ExitCode");
-    expect(format).toContain(".State.Health.Status");
+    expect(format).toContain('index .State "Health"');
+    expect(format).toContain("{{json .Status}}");
     expect(format).not.toContain(".Env");
     expect(format).not.toContain(".Health.Log");
     expect(format).not.toContain("{{json .State.Health}}");
