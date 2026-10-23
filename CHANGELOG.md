@@ -2,6 +2,16 @@
 
 All notable changes follow semantic versioning.
 
+## 0.7.0
+
+- Add optional server `build.runtime_script` overrides for project-relative
+  startup scripts while retaining the existing default adapter.
+- Add the `%runtime_script%` Dockerfile template placeholder for the selected
+  script's stable build-context filename.
+- Validate explicit script paths and file existence consistently in
+  `config validate`, `doctor`, and image builds, without requiring custom
+  scripts to use the default adapter's Perl contract.
+
 ## 0.6.0
 
 - Add `start` to recover existing containers and their dependencies without
