@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
+import { resolveServerRuntimeScriptPath } from "../context";
 import { PapucsError } from "../errors";
 import { atomicWriteFile, ensureDir, toPosix } from "../fs";
 import { resolveGitMetadata } from "../git";
@@ -71,19 +72,20 @@ export async function commandBuildServer(
       `Dockerfile template not found: ${dockerfileTemplatePath}`,
     );
   }
-  if (!existsSync(context.runtimeReplaceScriptPath)) {
-    throw new PapucsError(
-      `Runtime replacement script not found: ${context.runtimeReplaceScriptPath}`,
-    );
-  }
+  const runtimeScriptPath = resolveServerRuntimeScriptPath(
+    context,
+    manifest.config,
+  );
 
   const git = await resolveGitMetadata(context);
   const buildConfig = {
     image: manifest.config.build?.image ?? context.config.build.image,
     tags: manifest.config.build?.tags ?? context.config.build.tags,
   };
+  const runtimeScriptFileName = "papucs-runtime-replace.sh";
   const values = buildTemplateValues(context, manifest.config, serverType, {
     build_from: manifest.config.image,
+    runtime_script: runtimeScriptFileName,
     ref: sanitizeDockerTagValue(git.ref),
     sha: git.sha,
     github_owner: git.githubOwner,
@@ -142,8 +144,8 @@ export async function commandBuildServer(
     );
     await atomicWriteFile(path.join(buildDirectory, "Dockerfile"), dockerfile);
     await atomicWriteFile(
-      path.join(buildDirectory, "papucs-runtime-replace.sh"),
-      await readFile(context.runtimeReplaceScriptPath),
+      path.join(buildDirectory, runtimeScriptFileName),
+      await readFile(runtimeScriptPath),
     );
     await atomicWriteFile(
       path.join(buildDirectory, "papucs-interpolate.env"),

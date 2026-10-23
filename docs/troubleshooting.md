@@ -36,6 +36,12 @@ The bundled adapter requires Linux `sh`, `find`, `grep`, and `perl`. Use the
 default tested base image or provide a compatible server-specific
 `Dockerfile.template`.
 
+For a different startup implementation, set the server's `build.runtime_script`
+to an existing project-relative file and configure its entrypoint in the
+Dockerfile. The selected file still appears as `papucs-runtime-replace.sh` in
+the build context. `doctor` validates custom script paths but does not check
+their interpreter or runtime dependencies; verify those in the image.
+
 ## Port conflict
 
 Set a different top-level `papucs_port_base` in the server YAML file, using

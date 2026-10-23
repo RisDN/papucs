@@ -50,6 +50,7 @@ export interface ProjectContext {
 export interface ServerBuildConfig {
   image?: string;
   tags?: string[];
+  runtime_script?: string;
 }
 
 export type DependencyCondition =

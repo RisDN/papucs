@@ -3,7 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { readProjectConfig } from "./config";
 import { PapucsError } from "./errors";
-import type { ProjectContext } from "./types";
+import type { ProjectContext, ServerConfig } from "./types";
 
 export interface ResolveProjectOptions {
   cwd?: string;
@@ -30,6 +30,28 @@ export function resolveInsideRoot(
     throw new PapucsError(`${label} escapes the project root.`);
   }
   return resolved;
+}
+
+export function resolveServerRuntimeScriptPath(
+  context: ProjectContext,
+  serverConfig: ServerConfig,
+): string {
+  const configuredPath = serverConfig.build?.runtime_script;
+  const scriptPath =
+    configuredPath === undefined
+      ? context.runtimeReplaceScriptPath
+      : resolveInsideRoot(context.root, configuredPath, "build.runtime_script");
+  if (!existsSync(scriptPath)) {
+    throw new PapucsError(
+      `Runtime replacement script not found: ${scriptPath}`,
+    );
+  }
+  if (!statSync(scriptPath).isFile()) {
+    throw new PapucsError(
+      `Runtime replacement script is not a file: ${scriptPath}`,
+    );
+  }
+  return scriptPath;
 }
 
 export function findProjectConfig(startDirectory: string): string {

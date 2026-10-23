@@ -15,9 +15,13 @@ Resolution order is explicit `--config`, explicit `--project`, then upward
 ## Environment and validation
 
 - `papucs doctor [--json]`: validates Node, Docker, Compose, daemon, project
-  files, source manifests, and runtime adapter contract.
+  files, source manifests, each server's selected runtime script, and the
+  default runtime adapter contract when used. Custom scripts are checked as
+  files, not executed or required to use Perl.
 - `papucs config validate [--json]`: validates configuration and every server
-  source without starting Docker workloads.
+  source without starting Docker workloads, including the path and existence of
+  explicit server `build.runtime_script` overrides. Use `doctor` to check the
+  default runtime adapter as well.
 
 ## Local lifecycle
 
@@ -173,6 +177,13 @@ cannot reliably be identified as secrets; use `--tail 0` to omit logs.
 - `--json`: emit stable machine output.
 
 The command builds and optionally pushes OCI images. It does not deploy them.
+Each server can select a project-relative `build.runtime_script`; omitted
+settings retain `scripts/papucs-runtime-replace.sh`. The selected file is
+packaged as `papucs-runtime-replace.sh` in the build context. Selection and file
+validation also run during `--dry-run`. Dockerfile templates can use
+`%runtime_script%` for that stable filename. See the
+[runtime script configuration](configuration.md#image-runtime-script) for the
+Dockerfile and local-runtime boundaries.
 
 ## Generators
 

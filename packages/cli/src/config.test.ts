@@ -113,3 +113,29 @@ describe("server dependency schema", () => {
     ).rejects.toThrow("Invalid configuration");
   });
 });
+
+describe("server runtime script schema", () => {
+  test("keeps the default absent and preserves an explicit project-relative path", async () => {
+    expect(
+      (await readServerConfig(await config())).build?.runtime_script,
+    ).toBeUndefined();
+    expect(
+      (
+        await readServerConfig(
+          await config({ build: { runtime_script: " scripts/custom.sh " } }),
+        )
+      ).build?.runtime_script,
+    ).toBe("scripts/custom.sh");
+  });
+
+  test.each([null, "", "   ", 42, true, "scripts/bad\0.sh"])(
+    "rejects invalid runtime script %j with its field path",
+    async (runtimeScript) => {
+      await expect(
+        readServerConfig(
+          await config({ build: { runtime_script: runtimeScript } }),
+        ),
+      ).rejects.toThrow("build.runtime_script");
+    },
+  );
+});

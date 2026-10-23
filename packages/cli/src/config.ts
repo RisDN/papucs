@@ -94,6 +94,7 @@ const serverConfigSchema = z
       .object({
         image: z.string().trim().min(1).optional(),
         tags: z.array(z.string().trim().min(1)).min(1).optional(),
+        runtime_script: relativePathSchema.optional(),
       })
       .optional(),
     interpolate_variables: z

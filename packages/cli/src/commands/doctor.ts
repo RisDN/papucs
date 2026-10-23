@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { readYamlObject } from "../config";
 import { resolveServerComposeTemplatePath } from "../compose";
+import { resolveServerRuntimeScriptPath } from "../context";
 import { collectSourceManifest, listServerTypes } from "../manifest";
 import { runCommand } from "../process";
 import type { DoctorCheck, ProjectContext } from "../types";
@@ -38,7 +39,6 @@ export async function commandDoctor(
     ["compose", context.composeFilePath],
     ["server-template", context.sharedServerComposeTemplatePath],
     ["dockerfile-template", context.dockerfileTemplatePath],
-    ["runtime-script", context.runtimeReplaceScriptPath],
   ] as const) {
     checks.push(
       check(
@@ -99,13 +99,35 @@ export async function commandDoctor(
     );
   }
 
+  let usesDefaultRuntimeScript = false;
+  const checkedScripts = new Set<string>();
   try {
     await readYamlObject(context.composeFilePath);
     const serverTypes = await listServerTypes(context);
     for (const serverType of serverTypes) {
-      await collectSourceManifest(context, serverType);
+      const manifest = await collectSourceManifest(context, serverType);
       const composePath = resolveServerComposeTemplatePath(context, serverType);
       await readYamlObject(composePath);
+      const customScript = manifest.config.build?.runtime_script !== undefined;
+      const scriptCheckId = customScript
+        ? `runtime-script:${serverType}`
+        : "runtime-script";
+      if (!checkedScripts.has(scriptCheckId)) {
+        checkedScripts.add(scriptCheckId);
+        try {
+          resolveServerRuntimeScriptPath(context, manifest.config);
+          checks.push(check(scriptCheckId, "ok", `${scriptCheckId} found.`));
+          usesDefaultRuntimeScript ||= !customScript;
+        } catch (error) {
+          checks.push(
+            check(
+              scriptCheckId,
+              "error",
+              error instanceof Error ? error.message : String(error),
+            ),
+          );
+        }
+      }
     }
     checks.push(
       check(
@@ -124,7 +146,7 @@ export async function commandDoctor(
     );
   }
 
-  if (existsSync(context.runtimeReplaceScriptPath)) {
+  if (usesDefaultRuntimeScript) {
     const script = await readFile(context.runtimeReplaceScriptPath, "utf8");
     checks.push(
       check(
@@ -145,7 +167,10 @@ export async function commandConfigValidate(
   await readYamlObject(context.composeFilePath);
   const serverTypes = await listServerTypes(context);
   for (const serverType of serverTypes) {
-    await collectSourceManifest(context, serverType);
+    const manifest = await collectSourceManifest(context, serverType);
+    if (manifest.config.build?.runtime_script !== undefined) {
+      resolveServerRuntimeScriptPath(context, manifest.config);
+    }
     await readYamlObject(resolveServerComposeTemplatePath(context, serverType));
   }
   return { project: context.config.project, serverTypes };

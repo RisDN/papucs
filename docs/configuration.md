@@ -36,6 +36,7 @@ actions_build: true
 build:
   image: "ghcr.io/example/special-%server_type%"
   tags: ["%ref%", "%sha%"]
+  runtime_script: scripts/spawn-runtime.sh
 
 layers:
   - base
@@ -52,6 +53,43 @@ Required fields:
 
 `--skip-build` keeps a layer and its nested layers in local runtimes but removes
 that reference's entire subtree from image build contexts.
+
+### Image runtime script
+
+The optional server `build.runtime_script` selects the startup script packaged
+with that server's image. Its path is relative to the project root containing
+`papucs.yml`, not the server definition directory. It must identify an existing
+file inside the project. Absolute paths and paths escaping the project root are
+rejected by `config validate`, `doctor`, and `build`, including
+`build --dry-run`.
+
+When omitted, Papucs uses `scripts/papucs-runtime-replace.sh` as before. There
+is no project-level `build.runtime_script` field or automatic server-local
+script discovery. A server with an explicit script does not require the default
+script; other server types still use their own selected or default script.
+
+Papucs always copies the selected file into the build context as
+`papucs-runtime-replace.sh`. In a `Dockerfile.template`, `%runtime_script%`
+resolves to this stable context filename, never to the source path:
+
+```dockerfile
+FROM %build_from%
+COPY %runtime_script% /usr/local/bin/spawn-runtime.sh
+RUN chmod +x /usr/local/bin/spawn-runtime.sh
+ENTRYPOINT ["/usr/local/bin/spawn-runtime.sh"]
+CMD ["/start"]
+```
+
+A CLI without this placeholder rejects the template instead of silently building
+it with the default script. The existing `papucs-interpolate.env` and
+`replaceable_extensions.txt` build-context files remain available. The custom
+script decides whether and how to use them; Papucs does not execute it during
+the build or impose the default adapter's Perl contract on it. Ensure its
+interpreter and any required tools exist in the base image.
+
+This setting affects image packaging only. It does not change local Compose
+entrypoints, mounts, synchronization, or runtime-data preservation. Configure
+local startup behavior explicitly in the server's Compose template when needed.
 
 ### Ports
 
@@ -221,6 +259,8 @@ Build image and tag templates also receive:
 pipeline. For example, `feature/network` becomes `feature-network`.
 
 - `%build_from%`
+- `%runtime_script%`: the selected script's build-context filename,
+  `papucs-runtime-replace.sh`
 
 `%github_owner%` reads `GITHUB_REPOSITORY_OWNER` or `GHCR_OWNER`.
 
